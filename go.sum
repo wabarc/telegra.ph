@@ -19,10 +19,14 @@ github.com/kallydev/telegraph-go v1.0.0 h1:JsIlQfYCY4S5QH20rJYSN6A1eY/vVx07oBVaC
 github.com/kallydev/telegraph-go v1.0.0/go.mod h1:vZj7M9HridntSIuQ7D9hgn2idKiA0T1VIblLp6l9uuc=
 github.com/mailru/easyjson v0.7.6 h1:8yTIVnZgCoiM1TgqoeTl+LfU5Jg6/xL3QhGQnimLYnA=
 github.com/mailru/easyjson v0.7.6/go.mod h1:xzfreul335JAWq5oZzymOObrkdz5UnU4kGfJJLY9Nlc=
+github.com/oliamb/cutter v0.2.2 h1:Lfwkya0HHNU1YLnGv2hTkzHfasrSMkgv4Dn+5rmlk3k=
+github.com/oliamb/cutter v0.2.2/go.mod h1:4BenG2/4GuRBDbVm/OPahDVqbrOemzpPiG5mi1iryBU=
 github.com/wabarc/helper v0.0.0-20210127120855-10af37cc2616 h1:wZ5HtpmZAVUq0Im5Sm92ycJrTeLJk5lB/Kvh55Rd+Ps=
 github.com/wabarc/helper v0.0.0-20210127120855-10af37cc2616/go.mod h1:N9P4r7Rn46p4nkWtXV6ztN3p5ACVnp++bgfwjTqSxQ8=
 github.com/wabarc/screenshot v0.0.0-20210127123919-7b249b9e1d08 h1:Sykq9OPY9w8yUKDPQklnC0sUxdxNukLbAQJwk2p+Dqs=
 github.com/wabarc/screenshot v0.0.0-20210127123919-7b249b9e1d08/go.mod h1:4UF/mOVbZmULZ4qeigCWEXlSp0wS5jtq11EdsbyyN5w=
+github.com/wabarc/screenshot v0.0.0-20210130142515-2d17e804fbc9 h1:W3mH1RmdQxymWJw8htexlMKtfZ4UiVMM2z2U1R0t2XU=
+github.com/wabarc/screenshot v0.0.0-20210130142515-2d17e804fbc9/go.mod h1:4UF/mOVbZmULZ4qeigCWEXlSp0wS5jtq11EdsbyyN5w=
 golang.org/x/sys v0.0.0-20210122093101-04d7465088b8/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
 golang.org/x/sys v0.0.0-20210124154548-22da62e12c0c h1:VwygUrnw9jn88c4u8GD3rZQbqrP/tgas88tPUbBxQrk=
 golang.org/x/sys v0.0.0-20210124154548-22da62e12c0c/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=

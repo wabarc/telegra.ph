@@ -7,6 +7,8 @@ package ph
 import (
 	"context"
 	"fmt"
+	"image"
+	"image/png"
 	"io/ioutil"
 	"log"
 	"os"
@@ -14,6 +16,7 @@ import (
 	"time"
 
 	"github.com/kallydev/telegraph-go"
+	"github.com/oliamb/cutter"
 	"github.com/wabarc/helper"
 	"github.com/wabarc/screenshot"
 )
@@ -57,7 +60,7 @@ func (arc *Archiver) Wayback(links []string) (map[string]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	shots, err := screenshot.Screenshot(ctx, matches)
+	shots, err := screenshot.Screenshot(ctx, matches, screenshot.Quality(80))
 	if err != nil {
 		if err == context.DeadlineExceeded {
 			log.Println(err)
@@ -76,7 +79,7 @@ func (arc *Archiver) Wayback(links []string) (map[string]string, error) {
 			continue
 		}
 		name := helper.FileName(shot.URL, "image/png")
-		file, err := ioutil.TempFile(os.TempDir(), "telegraph-"+name)
+		file, err := ioutil.TempFile(os.TempDir(), "telegraph-*-"+name)
 		if err != nil {
 			log.Println(err)
 			continue
@@ -106,32 +109,43 @@ func (arc *Archiver) post(imgpath string, ch chan<- string) {
 		return
 	}
 
-	paths, err := arc.client.Upload([]string{imgpath})
+	// Telegraph image height limit upper 8976 px
+	crops, err := splitImage(imgpath, 8976)
 	if err != nil {
 		ch <- fmt.Sprintf("%v", err)
 		return
 	}
+
+	paths, err := arc.client.Upload(crops)
+	if err != nil {
+		ch <- fmt.Sprintf("%v", err)
+		return
+	}
+
+	nodes := []telegraph.Node{}
+	nodes = append(nodes, "source: ")
+	nodes = append(nodes, telegraph.NodeElement{
+		Tag: "a",
+		Attrs: map[string]string{
+			"href":   arc.subject.source,
+			"target": "_blank",
+		},
+		Children: []telegraph.Node{arc.subject.source},
+	})
+	for _, path := range paths {
+		nodes = append(nodes, telegraph.NodeElement{
+			Tag: "img",
+			Attrs: map[string]string{
+				"src": path,
+				"alt": "Banner",
+			},
+		})
+	}
+
 	page, err := arc.client.CreatePage(arc.subject.title, []telegraph.Node{
 		telegraph.NodeElement{
-			Tag: "",
-			Children: []telegraph.Node{
-				"source: ",
-				telegraph.NodeElement{
-					Tag: "a",
-					Attrs: map[string]string{
-						"href":   arc.subject.source,
-						"target": "_blank",
-					},
-					Children: []telegraph.Node{arc.subject.source},
-				},
-				telegraph.NodeElement{
-					Tag: "img",
-					Attrs: map[string]string{
-						"src": paths[0],
-						"alt": "Banner",
-					},
-				},
-			},
+			Tag:      "",
+			Children: nodes,
 		},
 	}, &telegraph.CreatePageOption{
 		ReturnContent: false,
@@ -160,4 +174,85 @@ func (arc *Archiver) newClient() (*telegraph.Client, error) {
 	client.AccessToken = account.AccessToken
 
 	return client, nil
+}
+
+func splitImage(name string, height int) (paths []string, err error) {
+	rd, err := os.Open(name)
+	if err != nil {
+		return paths, err
+	}
+	defer rd.Close()
+
+	dim, _, err := image.DecodeConfig(rd)
+	if err != nil {
+		return paths, err
+	}
+
+	if dim.Height <= height {
+		return []string{name}, nil
+	}
+
+	img, err := readImage(name)
+	if err != nil {
+		return paths, err
+	}
+
+	round := float64(dim.Height) / float64(height)
+	point := 0
+	for round > 0 {
+		simg, err := cutter.Crop(img, cutter.Config{
+			Width:  dim.Width,
+			Height: height,
+			Anchor: image.Point{0, point},
+		})
+		if err != nil {
+			log.Println(err)
+			return paths, err
+		}
+
+		if dim.Height-point < height {
+			point += dim.Height - point
+		} else {
+			point += height
+		}
+
+		file, err := ioutil.TempFile(os.TempDir(), "telegraph-*.png")
+		if err != nil {
+			log.Println(err)
+			continue
+		}
+		if err := writeImage(simg, file.Name()); err != nil {
+			log.Println(err)
+			continue
+		}
+		paths = append(paths, file.Name())
+		round--
+	}
+
+	return paths, nil
+}
+
+func readImage(name string) (image.Image, error) {
+	rd, err := os.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer rd.Close()
+
+	img, _, err := image.Decode(rd)
+	if err != nil {
+		return nil, err
+	}
+
+	return img, nil
+}
+
+func writeImage(img image.Image, name string) error {
+	fd, err := os.Create(name)
+	if err != nil {
+		return err
+	}
+	defer fd.Close()
+
+	return png.Encode(fd, img)
 }

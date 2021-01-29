@@ -18,7 +18,7 @@ import (
 
 func genImage() *os.File {
 	width := 200
-	height := 100
+	height := 10000
 
 	upLeft := image.Point{0, 0}
 	lowRight := image.Point{width, height}
@@ -78,7 +78,7 @@ func TestPost(t *testing.T) {
 
 	resp, err := http.Get(dest)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	defer resp.Body.Close()
 
@@ -132,4 +132,14 @@ func TestWayback(t *testing.T) {
 			t.Fail()
 		}
 	}
+}
+
+func TestSplitImage(t *testing.T) {
+	file := genImage()
+	paths, err := splitImage(file.Name(), 8976)
+	if err != nil {
+		t.Log(err)
+		t.Fail()
+	}
+	t.Log(paths)
 }
