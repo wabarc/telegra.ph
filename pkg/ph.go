@@ -75,6 +75,7 @@ func (arc *Archiver) Wayback(links []string) (map[string]string, error) {
 
 	for _, shot := range shots {
 		if shot.URL == "" || shot.Data == nil {
+			collect[shot.URL] = "Screenshots failed."
 			log.Println("Data empty")
 			continue
 		}
@@ -110,7 +111,7 @@ func (arc *Archiver) post(imgpath string, ch chan<- string) {
 	}
 
 	// Telegraph image height limit upper 8976 px
-	crops, err := splitImage(imgpath, 8976)
+	crops, err := splitImage(imgpath, 8000)
 	if err != nil {
 		ch <- fmt.Sprintf("%v", err)
 		return
