@@ -110,6 +110,9 @@ func (arc *Archiver) post(imgpath string, ch chan<- string) {
 		ch <- "Title is required"
 		return
 	}
+	if len(arc.subject.title) > 256 {
+		arc.subject.title = arc.subject.title[:256]
+	}
 
 	// Telegraph image height limit upper 8976 px
 	// crops, err := splitImage(imgpath, 8000)
