@@ -18,6 +18,7 @@ import (
 	"github.com/kallydev/telegraph-go"
 	"github.com/oliamb/cutter"
 	"github.com/wabarc/helper"
+	"github.com/wabarc/imgbb"
 	"github.com/wabarc/screenshot"
 )
 
@@ -60,7 +61,7 @@ func (arc *Archiver) Wayback(links []string) (map[string]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	shots, err := screenshot.Screenshot(ctx, matches, screenshot.Quality(80))
+	shots, err := screenshot.Screenshot(ctx, matches, screenshot.Quality(100))
 	if err != nil {
 		if err == context.DeadlineExceeded {
 			log.Println(err)
@@ -111,13 +112,18 @@ func (arc *Archiver) post(imgpath string, ch chan<- string) {
 	}
 
 	// Telegraph image height limit upper 8976 px
-	crops, err := splitImage(imgpath, 8000)
-	if err != nil {
-		ch <- fmt.Sprintf("%v", err)
-		return
-	}
+	// crops, err := splitImage(imgpath, 8000)
+	// if err != nil {
+	// 	ch <- fmt.Sprintf("%v", err)
+	// 	return
+	// }
 
-	paths, err := arc.client.Upload(crops)
+	// paths, err := arc.client.Upload(crops)
+	// if err != nil {
+	// 	ch <- fmt.Sprintf("%v", err)
+	// 	return
+	// }
+	paths, err := upload(imgpath)
 	if err != nil {
 		ch <- fmt.Sprintf("%v", err)
 		return
@@ -175,6 +181,15 @@ func (arc *Archiver) newClient() (*telegraph.Client, error) {
 	client.AccessToken = account.AccessToken
 
 	return client, nil
+}
+
+func upload(filename string) (paths []string, err error) {
+	url, err := imgbb.NewImgBB(nil, "").Upload(filename)
+	if err != nil {
+		return paths, err
+	}
+
+	return []string{url}, nil
 }
 
 func splitImage(name string, height int) (paths []string, err error) {
