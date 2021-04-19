@@ -10,7 +10,6 @@ import (
 	"image"
 	"image/png"
 	"io/ioutil"
-	"log"
 	"os"
 	"strings"
 	"time"
@@ -19,6 +18,7 @@ import (
 	"github.com/oliamb/cutter"
 	"github.com/wabarc/helper"
 	"github.com/wabarc/imgbb"
+	"github.com/wabarc/logger"
 	"github.com/wabarc/screenshot"
 )
 
@@ -34,13 +34,19 @@ type Archiver struct {
 	subject subject
 }
 
+func init() {
+	if os.Getenv("DEBUG") != "" {
+		logger.EnableDebug()
+	}
+}
+
 // Wayback is the handle of saving webpages to telegra.ph
 func (arc *Archiver) Wayback(links []string) (map[string]string, error) {
 	collect := make(map[string]string)
 	var matches []string
 	for _, link := range links {
 		if !helper.IsURL(link) {
-			log.Println(link + " is invalid url.")
+			logger.Debug(link + " is invalid url.")
 			continue
 		}
 		collect[link] = link
@@ -48,12 +54,12 @@ func (arc *Archiver) Wayback(links []string) (map[string]string, error) {
 	}
 
 	if len(collect) == 0 {
-		log.Println("URL no found")
+		logger.Debug("URL no found")
 		return collect, fmt.Errorf("%s", "URL no found")
 	}
 	client, err := arc.newClient()
 	if err != nil {
-		log.Println(err)
+		logger.Debug("%v", err)
 		return collect, err
 	}
 	arc.client = client
@@ -64,10 +70,10 @@ func (arc *Archiver) Wayback(links []string) (map[string]string, error) {
 	shots, err := screenshot.Screenshot(ctx, matches, screenshot.Quality(100))
 	if err != nil {
 		if err == context.DeadlineExceeded {
-			log.Println(err)
+			logger.Debug("%v", err)
 			return collect, err
 		}
-		log.Println(err)
+		logger.Debug("%v", err)
 		return collect, err
 	}
 
@@ -77,19 +83,19 @@ func (arc *Archiver) Wayback(links []string) (map[string]string, error) {
 	for _, shot := range shots {
 		if shot.URL == "" || shot.Data == nil {
 			collect[shot.URL] = "Screenshots failed."
-			log.Println("Data empty")
+			logger.Debug("Data empty")
 			continue
 		}
 		name := helper.FileName(shot.URL, "image/png")
 		file, err := ioutil.TempFile(os.TempDir(), "telegraph-*-"+name)
 		if err != nil {
-			log.Println(err)
+			logger.Debug("%v", err)
 			continue
 		}
 		defer os.Remove(file.Name())
 
 		if err := ioutil.WriteFile(file.Name(), shot.Data, 0o644); err != nil {
-			log.Println(err)
+			logger.Debug("%v", err)
 			continue
 		}
 
@@ -225,7 +231,7 @@ func splitImage(name string, height int) (paths []string, err error) {
 			Anchor: image.Point{0, point},
 		})
 		if err != nil {
-			log.Println(err)
+			logger.Debug("%v", err)
 			return paths, err
 		}
 
@@ -237,11 +243,11 @@ func splitImage(name string, height int) (paths []string, err error) {
 
 		file, err := ioutil.TempFile(os.TempDir(), "telegraph-*.png")
 		if err != nil {
-			log.Println(err)
+			logger.Debug("%v", err)
 			continue
 		}
 		if err := writeImage(simg, file.Name()); err != nil {
-			log.Println(err)
+			logger.Debug("%v", err)
 			continue
 		}
 		paths = append(paths, file.Name())

@@ -13,7 +13,7 @@ $ go get github.com/wabarc/telegra.ph
 From [gobinaries.com](https://gobinaries.com):
 
 ```sh
-$ curl -sf https://gobinaries.com/wabarc/telegra.ph | sh
+$ curl -sf https://gobinaries.com/wabarc/telegra.ph/cmd/telegra.ph | sh
 ```
 
 From [releases](https://github.com/wabarc/telegra.ph/releases)
@@ -37,7 +37,7 @@ package main
 import (
         "fmt"
 
-        "github.com/wabarc/telegra.ph/pkg"
+        "github.com/wabarc/telegra.ph"
 )
 
 func main() {

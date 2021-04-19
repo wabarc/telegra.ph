@@ -5,9 +5,7 @@ export GOPROXY = https://proxy.golang.org
 NAME = telegra.ph
 BINDIR ?= ./build/binary
 PACKDIR ?= ./build/package
-LDFLAGS := $(shell echo "-X 'telegra.ph/version.Version=`git describe --tags --abbrev=0`'")
-LDFLAGS := $(shell echo "${LDFLAGS} -X 'telegra.ph/version.Commit=`git rev-parse --short HEAD`'")
-LDFLAGS := $(shell echo "${LDFLAGS} -X 'telegra.ph/version.BuildDate=`date +%FT%T%z`'")
+LDFLAGS := $(shell echo "-X 'github.com/wabarc/telegra.ph.Version=`git describe --tags --abbrev=0`'")
 GOBUILD ?= go build -trimpath --ldflags "-s -w ${LDFLAGS} -buildid=" -v
 VERSION ?= $(shell git describe --tags `git rev-list --tags --max-count=1` | sed -e 's/v//g')
 GOFILES ?= $(wildcard ./cmd/telegra.ph/*.go)
@@ -19,6 +17,7 @@ IMAGE := wabarc/golang-chromium:dev
 
 PLATFORM_LIST = \
 	darwin-amd64 \
+	darwin-arm64 \
 	linux-386 \
 	linux-amd64 \
 	linux-armv5 \
@@ -46,6 +45,7 @@ WINDOWS_ARCH_LIST = \
 .PHONY: \
 	darwin-386 \
 	darwin-amd64 \
+	darwin-arm64 \
 	linux-386 \
 	linux-amd64 \
 	linux-armv5 \

@@ -7,4 +7,4 @@ telegra.ph is a Golang package and command-line tool for
 capture webpage as image and publish to telegra.ph
 */
 
-package main // import "github.com/wabarc/telegra.ph"
+package ph // import "github.com/wabarc/telegra.ph"

@@ -2,10 +2,6 @@
 // Use of this source code is governed by the GNU GPL v3
 // license that can be found in the LICENSE file.
 
-package main
+package ph
 
-import "github.com/wabarc/telegra.ph/cmd"
-
-func main() {
-	ph.Run()
-}
+var Version = "dev"

@@ -2,17 +2,17 @@
 // Use of this source code is governed by the GNU GPL v3
 // license that can be found in the LICENSE file.
 
-package ph
+package main
 
 import (
 	"flag"
 	"fmt"
 	"os"
 
-	"github.com/wabarc/telegra.ph/pkg"
+	"github.com/wabarc/telegra.ph"
 )
 
-func Run() {
+func main() {
 	flag.Parse()
 
 	args := flag.Args()
