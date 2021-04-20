@@ -12,8 +12,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/wabarc/helper"
 )
 
 func genImage() *os.File {
@@ -108,6 +112,74 @@ func TestWayback(t *testing.T) {
 
 	urls := []string{ts.URL}
 	arc := &Archiver{}
+	archived, err := arc.Wayback(urls)
+	if err != nil {
+		t.Error(err)
+	}
+	if len(archived) == 0 {
+		t.Fail()
+	}
+
+	for link, r := range archived {
+		if link != ts.URL {
+			t.Log("URL no matched", ",expect:", ts.URL, ",got:", link)
+			t.Fail()
+		}
+
+		resp, err := http.Get(r)
+		if err != nil {
+			t.Error(err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == 404 {
+			t.Fail()
+		}
+	}
+}
+
+func TestWaybackByRemote(t *testing.T) {
+	ts := httptest.NewServer(writeHTML(`
+<html>
+<head>
+    <title>Example Domain</title>
+</head>
+
+<body>
+<div>
+    <h1>Example Domain</h1>
+    <p>This domain is for use in illustrative examples in documents. You may use this
+    domain in literature without prior coordination or asking for permission.</p>
+    <p><a href="https://www.iana.org/domains/example">More information...</a></p>
+</div>
+</body>
+</html>
+	`))
+	defer ts.Close()
+
+	binPath := helper.FindChromeExecPath()
+	if binPath == "" {
+		t.Skip("Chrome headless browser no found, skipped")
+	}
+
+	cmd := exec.Command(binPath, "--headless", "--disable-gpu", "--no-sandbox", "--remote-debugging-port=9222")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Start Chromium headless failed: %v", err)
+	}
+	go func() {
+		cmd.Wait()
+	}()
+
+	// Waiting for browser startup
+	time.Sleep(3 * time.Second)
+	defer func() {
+		if err := cmd.Process.Kill(); err != nil {
+			t.Errorf("Failed to kill process: %v", err)
+		}
+	}()
+
+	urls := []string{ts.URL}
+	arc := New().ByRemote("127.0.0.1:9222")
 	archived, err := arc.Wayback(urls)
 	if err != nil {
 		t.Error(err)

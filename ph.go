@@ -10,6 +10,7 @@ import (
 	"image"
 	"image/png"
 	"io/ioutil"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -32,6 +33,8 @@ type Archiver struct {
 
 	client  *telegraph.Client
 	subject subject
+
+	browserRemoteAddr net.Addr
 }
 
 func init() {
@@ -40,9 +43,21 @@ func init() {
 	}
 }
 
+// New returns a Archiver struct.
+func New() *Archiver {
+	return &Archiver{}
+}
+
+// SetAuthor return a Archiver struct with Author
+func (arc *Archiver) SetAuthor(author string) *Archiver {
+	arc.Author = author
+	return arc
+}
+
 // Wayback is the handle of saving webpages to telegra.ph
 func (arc *Archiver) Wayback(links []string) (map[string]string, error) {
 	collect := make(map[string]string)
+	var err error
 	var matches []string
 	for _, link := range links {
 		if !helper.IsURL(link) {
@@ -67,7 +82,18 @@ func (arc *Archiver) Wayback(links []string) (map[string]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	shots, err := screenshot.Screenshot(ctx, matches, screenshot.Quality(100))
+	var shots []screenshot.Screenshots
+	if arc.browserRemoteAddr != nil {
+		addr := arc.browserRemoteAddr.(*net.TCPAddr)
+		remote, err := screenshot.NewChromeRemoteScreenshoter(addr.String())
+		if err != nil {
+			logger.Debug("%v", err)
+			return collect, err
+		}
+		shots, err = remote.Screenshot(ctx, links, screenshot.ScaleFactor(1))
+	} else {
+		shots, err = screenshot.Screenshot(ctx, matches, screenshot.Quality(100))
+	}
 	if err != nil {
 		if err == context.DeadlineExceeded {
 			logger.Debug("%v", err)
@@ -280,4 +306,21 @@ func writeImage(img image.Image, name string) error {
 	defer fd.Close()
 
 	return png.Encode(fd, img)
+}
+
+// ByRemote returns Archiver with headless browser remote address.
+func (arc *Archiver) ByRemote(addr string) *Archiver {
+	conn, err := net.DialTimeout("tcp", addr, time.Second)
+	if err != nil {
+		logger.Debug("Try to connect headless browser failed: %v", err)
+	}
+	if conn != nil {
+		conn.Close()
+		arc.browserRemoteAddr = conn.RemoteAddr()
+		logger.Debug("Connected: %v", conn.RemoteAddr().String())
+	} else {
+		logger.Debug("Connect failed")
+	}
+
+	return arc
 }
