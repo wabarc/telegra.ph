@@ -192,7 +192,9 @@ run:
 
 test:
 	@echo "-> Running go test"
-	@CGO_ENABLED=1 go test -v -race -cover -coverprofile=coverage.out -covermode=atomic ./...
+	$(DOCKER) run -i --rm -v ${PWD}/../:${HOMEPATH} ${IMAGE} sh -c "\
+		cd ${HOMEPATH}/${NAME} && \
+		CGO_ENABLED=1 go test -v -race -cover -coverprofile=coverage.out -covermode=atomic ./..."
 
 test-integration:
 	@echo 'mode: atomic' > coverage.out
