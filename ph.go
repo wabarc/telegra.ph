@@ -38,7 +38,8 @@ type Archiver struct {
 }
 
 func init() {
-	if os.Getenv("DEBUG") != "" {
+	debug := os.Getenv("DEBUG")
+	if debug == "true" || debug == "1" || debug == "on" {
 		logger.EnableDebug()
 	}
 }
