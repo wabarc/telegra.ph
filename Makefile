@@ -185,7 +185,7 @@ vet:
 
 run:
 	@echo "-> Running docker container"
-	$(DOCKER) run -ti --rm -v ${PWD}/../:${HOMEPATH} ${IMAGE} sh -c "\
+	$(DOCKER) run -ti --memory="500m" --rm -v ${PWD}/../:${HOMEPATH} ${IMAGE} sh -c "\
 		cd ${HOMEPATH}/${NAME} && \
 		go get -v && \
 		sh"

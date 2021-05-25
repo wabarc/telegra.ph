@@ -11,6 +11,7 @@ import (
 	"image/png"
 	"io/ioutil"
 	"net"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -24,7 +25,7 @@ import (
 )
 
 type subject struct {
-	title  string
+	title  []rune
 	source string
 }
 
@@ -129,7 +130,7 @@ func (arc *Archiver) Wayback(links []string) (map[string]string, error) {
 		if strings.TrimSpace(shot.Title) == "" {
 			shot.Title = "Missing Title"
 		}
-		arc.subject = subject{title: shot.Title, source: shot.URL}
+		arc.subject = subject{title: []rune(shot.Title), source: shot.URL}
 		go arc.post(file.Name(), ch)
 		// Replace posted result in the map
 		collect[shot.URL] = <-ch
@@ -139,7 +140,7 @@ func (arc *Archiver) Wayback(links []string) (map[string]string, error) {
 }
 
 func (arc *Archiver) post(imgpath string, ch chan<- string) {
-	if arc.subject.title == "" {
+	if len(arc.subject.title) == 0 {
 		ch <- "Title is required"
 		return
 	}
@@ -159,22 +160,22 @@ func (arc *Archiver) post(imgpath string, ch chan<- string) {
 	// 	ch <- fmt.Sprintf("%v", err)
 	// 	return
 	// }
-	paths, err := upload(imgpath)
-	if err != nil {
-		ch <- fmt.Sprintf("%v", err)
+	paths, er := upload(imgpath)
+	if er != nil {
+		ch <- fmt.Sprintf("%v", er)
 		return
 	}
 
 	nodes := []telegraph.Node{}
-	nodes = append(nodes, "source: ")
-	nodes = append(nodes, telegraph.NodeElement{
-		Tag: "a",
-		Attrs: map[string]string{
-			"href":   arc.subject.source,
-			"target": "_blank",
-		},
-		Children: []telegraph.Node{arc.subject.source},
-	})
+	// nodes = append(nodes, "source: ")
+	// nodes = append(nodes, telegraph.NodeElement{
+	// 	Tag: "a",
+	// 	Attrs: map[string]string{
+	// 		"href":   arc.subject.source,
+	// 		"target": "_blank",
+	// 	},
+	// 	Children: []telegraph.Node{arc.subject.source},
+	// })
 	for _, path := range paths {
 		nodes = append(nodes, telegraph.NodeElement{
 			Tag: "img",
@@ -184,18 +185,40 @@ func (arc *Archiver) post(imgpath string, ch chan<- string) {
 			},
 		})
 	}
-
-	page, err := arc.client.CreatePage(arc.subject.title, []telegraph.Node{
+	nodes = []telegraph.Node{
 		telegraph.NodeElement{
 			Tag:      "",
 			Children: nodes,
 		},
-	}, &telegraph.CreatePageOption{
+	}
+
+	var pat bool
+	var err error
+	var page *telegraph.Page
+	var title = string(arc.subject.title)
+	if page, err = arc.client.CreatePage(title, nodes, nil); err != nil {
+		// Create page with random path if title illegal previous
+		if page, err = arc.client.CreatePage(helper.RandString(6, ""), nodes, nil); err != nil {
+			logger.Error("[telegra.ph] create page failed: %v", err)
+			ch <- "FAILED"
+			return
+		}
+		pat = true
+	}
+
+	opts := &telegraph.EditPageOption{
+		AuthorName:    "Source",
+		AuthorURL:     arc.subject.source,
 		ReturnContent: false,
-	})
-	if err != nil {
-		ch <- fmt.Sprintf("%v", err)
+	}
+	if page, err = arc.client.EditPage(page.Path, title, nodes, opts); err != nil {
+		logger.Error("[telegra.ph] edit page failed: %v", err)
+		ch <- "FAILED"
 		return
+	}
+
+	if pat {
+		page.URL += "?title=" + url.PathEscape(title)
 	}
 
 	ch <- page.URL
@@ -206,7 +229,6 @@ func (arc *Archiver) newClient() (*telegraph.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	// TODO: random name
 	account, err := client.CreateAccount("telegraph-go", &telegraph.CreateAccountOption{
 		AuthorName: "Anonymous",
 		AuthorURL:  "https://example.org",

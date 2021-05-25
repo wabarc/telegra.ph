@@ -70,7 +70,7 @@ func TestPost(t *testing.T) {
 		t.Error(err)
 	}
 	arc.client = client
-	arc.subject = subject{title: "testing", source: "http://example.org"}
+	arc.subject = subject{title: []rune("testing"), source: "http://example.org"}
 
 	ch := make(chan string, 1)
 	defer close(ch)
