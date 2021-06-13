@@ -5,6 +5,7 @@
 package ph // import "github.com/wabarc/telegra.ph/pkg"
 
 import (
+	"context"
 	"image"
 	"image/color"
 	"image/png"
@@ -18,8 +19,10 @@ import (
 	"time"
 
 	"github.com/wabarc/helper"
+	"github.com/wabarc/screenshot"
 )
 
+// nolint:errcheck
 func genImage() *os.File {
 	width := 200
 	height := 10000
@@ -53,6 +56,7 @@ func genImage() *os.File {
 	return f
 }
 
+// nolint:errcheck
 func writeHTML(content string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
@@ -158,15 +162,16 @@ func TestWaybackByRemote(t *testing.T) {
 	defer ts.Close()
 
 	binPath := helper.FindChromeExecPath()
-	if binPath == "" {
+	if _, err := exec.LookPath(binPath); err != nil {
 		t.Skip("Chrome headless browser no found, skipped")
 	}
 
-	cmd := exec.Command(binPath, "--headless", "--disable-gpu", "--no-sandbox", "--remote-debugging-port=9222")
+	cmd := exec.Command(binPath, "--headless", "--disable-gpu", "--no-sandbox", "--remote-debugging-port=9222", "--remote-debugging-address=0.0.0.0")
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("Start Chromium headless failed: %v", err)
 	}
 	go func() {
+		// nolint:errcheck
 		cmd.Wait()
 	}()
 
@@ -180,6 +185,57 @@ func TestWaybackByRemote(t *testing.T) {
 
 	urls := []string{ts.URL}
 	arc := New().ByRemote("127.0.0.1:9222")
+	archived, err := arc.Wayback(urls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(archived) == 0 {
+		t.FailNow()
+	}
+
+	for link, r := range archived {
+		if link != ts.URL {
+			t.Log("URL no matched", ",expect:", ts.URL, ",got:", link)
+			t.Fail()
+		}
+
+		resp, err := http.Get(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == 404 {
+			t.Fail()
+		}
+	}
+}
+
+func TestWaybackWithShots(t *testing.T) {
+	ts := httptest.NewServer(writeHTML(`
+<html>
+<head>
+    <title>Example Domain</title>
+</head>
+
+<body>
+<div>
+    <h1>Example Domain</h1>
+    <p>This domain is for use in illustrative examples in documents. You may use this
+    domain in literature without prior coordination or asking for permission.</p>
+    <p><a href="https://www.iana.org/domains/example">More information...</a></p>
+</div>
+</body>
+</html>
+	`))
+	defer ts.Close()
+
+	urls := []string{ts.URL}
+	arc := &Archiver{}
+	var err error
+	if arc.Shots, err = screenshot.Screenshot(context.Background(), urls, screenshot.Quality(100)); err != nil {
+		t.Fatal(err)
+	}
 	archived, err := arc.Wayback(urls)
 	if err != nil {
 		t.Error(err)

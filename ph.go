@@ -31,6 +31,7 @@ type subject struct {
 
 type Archiver struct {
 	Author string
+	Shots  []screenshot.Screenshots
 
 	client  *telegraph.Client
 	subject subject
@@ -50,9 +51,15 @@ func New() *Archiver {
 	return &Archiver{}
 }
 
-// SetAuthor return a Archiver struct with Author
+// SetAuthor return an Archiver struct with Author
 func (arc *Archiver) SetAuthor(author string) *Archiver {
 	arc.Author = author
+	return arc
+}
+
+// Shots return an Archiver struct with screenshot data
+func (arc *Archiver) SetShots(s []screenshot.Screenshots) *Archiver {
+	arc.Shots = s
 	return arc
 }
 
@@ -63,7 +70,7 @@ func (arc *Archiver) Wayback(links []string) (map[string]string, error) {
 	var matches []string
 	for _, link := range links {
 		if !helper.IsURL(link) {
-			logger.Debug(link + " is invalid url.")
+			logger.Debug("[telegraph] " + link + " is invalid url.")
 			continue
 		}
 		collect[link] = link
@@ -71,12 +78,12 @@ func (arc *Archiver) Wayback(links []string) (map[string]string, error) {
 	}
 
 	if len(collect) == 0 {
-		logger.Debug("URL no found")
+		logger.Debug("[telegraph] URL no found")
 		return collect, fmt.Errorf("%s", "URL no found")
 	}
 	client, err := arc.newClient()
 	if err != nil {
-		logger.Debug("%v", err)
+		logger.Debug("[telegraph] dial client failed: %v", err)
 		return collect, err
 	}
 	arc.client = client
@@ -84,46 +91,47 @@ func (arc *Archiver) Wayback(links []string) (map[string]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	var shots []screenshot.Screenshots
-	if arc.browserRemoteAddr != nil {
-		addr := arc.browserRemoteAddr.(*net.TCPAddr)
-		remote, err := screenshot.NewChromeRemoteScreenshoter(addr.String())
+	if len(arc.Shots) == 0 {
+		if arc.browserRemoteAddr != nil {
+			addr := arc.browserRemoteAddr.(*net.TCPAddr)
+			remote, er := screenshot.NewChromeRemoteScreenshoter(addr.String())
+			if er != nil {
+				logger.Debug("[telegraph] screenshot failed: %v", err)
+				return collect, err
+			}
+			arc.Shots, err = remote.Screenshot(ctx, matches, screenshot.ScaleFactor(1))
+		} else {
+			arc.Shots, err = screenshot.Screenshot(ctx, matches, screenshot.Quality(100))
+		}
 		if err != nil {
-			logger.Debug("%v", err)
+			if err == context.DeadlineExceeded {
+				logger.Debug("[telegraph] screenshot deadline: %v", err)
+				return collect, err
+			}
+			logger.Debug("[telegraph] screenshot error: %v", err)
 			return collect, err
 		}
-		shots, err = remote.Screenshot(ctx, links, screenshot.ScaleFactor(1))
-	} else {
-		shots, err = screenshot.Screenshot(ctx, matches, screenshot.Quality(100))
-	}
-	if err != nil {
-		if err == context.DeadlineExceeded {
-			logger.Debug("%v", err)
-			return collect, err
-		}
-		logger.Debug("%v", err)
-		return collect, err
 	}
 
 	ch := make(chan string, len(collect))
 	defer close(ch)
 
-	for _, shot := range shots {
-		if shot.URL == "" || shot.Data == nil {
+	for _, shot := range arc.Shots {
+		if shot.URL == "" || shot.Image == nil {
 			collect[shot.URL] = "Screenshots failed."
-			logger.Debug("Data empty")
+			logger.Debug("[telegraph] data empty")
 			continue
 		}
 		name := helper.FileName(shot.URL, "image/png")
 		file, err := ioutil.TempFile(os.TempDir(), "telegraph-*-"+name)
 		if err != nil {
-			logger.Debug("%v", err)
+			logger.Debug("[telegraph] create temp dir failed: %v", err)
 			continue
 		}
 		defer os.Remove(file.Name())
 
-		if err := ioutil.WriteFile(file.Name(), shot.Data, 0o644); err != nil {
-			logger.Debug("%v", err)
+		if err := ioutil.WriteFile(file.Name(), shot.Image, 0o644); err != nil {
+			logger.Debug("[telegraph] write image failed: %v", err)
 			continue
 		}
 
@@ -199,7 +207,7 @@ func (arc *Archiver) post(imgpath string, ch chan<- string) {
 	if page, err = arc.client.CreatePage(title, nodes, nil); err != nil {
 		// Create page with random path if title illegal previous
 		if page, err = arc.client.CreatePage(helper.RandString(6, ""), nodes, nil); err != nil {
-			logger.Error("[telegra.ph] create page failed: %v", err)
+			logger.Error("[telegraph] create page failed: %v", err)
 			ch <- "FAILED"
 			return
 		}
@@ -212,7 +220,7 @@ func (arc *Archiver) post(imgpath string, ch chan<- string) {
 		ReturnContent: false,
 	}
 	if page, err = arc.client.EditPage(page.Path, title, nodes, opts); err != nil {
-		logger.Error("[telegra.ph] edit page failed: %v", err)
+		logger.Error("[telegraph] edit page failed: %v", err)
 		ch <- "FAILED"
 		return
 	}
@@ -280,7 +288,7 @@ func splitImage(name string, height int) (paths []string, err error) {
 			Anchor: image.Point{0, point},
 		})
 		if err != nil {
-			logger.Debug("%v", err)
+			logger.Debug("[telegraph] crop image failed: %v", err)
 			return paths, err
 		}
 
@@ -292,11 +300,11 @@ func splitImage(name string, height int) (paths []string, err error) {
 
 		file, err := ioutil.TempFile(os.TempDir(), "telegraph-*.png")
 		if err != nil {
-			logger.Debug("%v", err)
+			logger.Debug("[telegraph] create tmp dir failed: %v", err)
 			continue
 		}
 		if err := writeImage(simg, file.Name()); err != nil {
-			logger.Debug("%v", err)
+			logger.Debug("[telegraph] write image failed: %v", err)
 			continue
 		}
 		paths = append(paths, file.Name())
@@ -335,14 +343,14 @@ func writeImage(img image.Image, name string) error {
 func (arc *Archiver) ByRemote(addr string) *Archiver {
 	conn, err := net.DialTimeout("tcp", addr, time.Second)
 	if err != nil {
-		logger.Debug("Try to connect headless browser failed: %v", err)
+		logger.Debug("[telegraph] try to connect headless browser failed: %v", err)
 	}
 	if conn != nil {
 		conn.Close()
 		arc.browserRemoteAddr = conn.RemoteAddr()
-		logger.Debug("Connected: %v", conn.RemoteAddr().String())
+		logger.Debug("[telegraph] connected: %v", conn.RemoteAddr().String())
 	} else {
-		logger.Debug("Connect failed")
+		logger.Debug("[telegraph] connect failed")
 	}
 
 	return arc
