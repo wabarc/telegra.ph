@@ -79,7 +79,7 @@ func TestPost(t *testing.T) {
 	ch := make(chan string, 1)
 	defer close(ch)
 
-	go arc.post(f.Name(), ch)
+	go arc.post("", f.Name(), ch)
 
 	dest := <-ch
 	t.Log("URL:", dest)

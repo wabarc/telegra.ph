@@ -5,6 +5,7 @@
 package ph
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"image"
@@ -13,10 +14,12 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/cixtor/readability"
 	"github.com/kallydev/telegraph-go"
 	"github.com/oliamb/cutter"
 	"github.com/wabarc/helper"
@@ -124,6 +127,10 @@ func (arc *Archiver) Wayback(links []string) (map[string]string, error) {
 
 	var wg sync.WaitGroup
 	for _, shot := range arc.Shots {
+		if shot.HTML == nil {
+			logger.Info("[telegraph] missing raw html, skipped")
+			continue
+		}
 		wg.Add(1)
 		go func(shot screenshot.Screenshots) {
 			defer wg.Done()
@@ -145,11 +152,20 @@ func (arc *Archiver) Wayback(links []string) (map[string]string, error) {
 				return
 			}
 
+			article, err := readability.New().Parse(bytes.NewReader(shot.HTML), shot.URL)
+			if err != nil {
+				logger.Error("[telegraph] parse html failed: %v", err)
+				return
+			}
+			if article.TextContent == "" {
+				logger.Info("[telegraph] text content empty")
+				return
+			}
 			if strings.TrimSpace(shot.Title) == "" {
 				shot.Title = "Missing Title"
 			}
 			arc.subject = subject{title: []rune(shot.Title), source: shot.URL}
-			arc.post(file.Name(), ch)
+			arc.post(article.TextContent, file.Name(), ch)
 			// Replace posted result in the map
 			collect[shot.URL] = <-ch
 		}(shot)
@@ -159,7 +175,7 @@ func (arc *Archiver) Wayback(links []string) (map[string]string, error) {
 	return collect, nil
 }
 
-func (arc *Archiver) post(imgpath string, ch chan<- string) {
+func (arc *Archiver) post(content, imgpath string, ch chan<- string) {
 	if len(arc.subject.title) == 0 {
 		ch <- "Title is required"
 		return
@@ -196,19 +212,28 @@ func (arc *Archiver) post(imgpath string, ch chan<- string) {
 	// 	},
 	// 	Children: []telegraph.Node{arc.subject.source},
 	// })
-	for _, path := range paths {
+	nodes = append(nodes, "screenshots: ")
+	for i, path := range paths {
 		nodes = append(nodes, telegraph.NodeElement{
-			Tag: "img",
+			Tag: "a",
 			Attrs: map[string]string{
-				"src": path,
-				"alt": "Banner",
+				"href":   path,
+				"target": "_blank",
 			},
+			Children: []telegraph.Node{strconv.Itoa(i + 1)},
 		})
 	}
 	nodes = []telegraph.Node{
 		telegraph.NodeElement{
-			Tag:      "",
+			Tag:      "em",
 			Children: nodes,
+		},
+		telegraph.NodeElement{
+			Tag: "br",
+		},
+		telegraph.NodeElement{
+			Tag:      "p",
+			Children: []telegraph.Node{content},
 		},
 	}
 
