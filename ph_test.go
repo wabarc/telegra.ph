@@ -252,7 +252,7 @@ func TestWaybackWithShots(t *testing.T) {
 
 		resp, err := http.Get(r)
 		if err != nil {
-			t.Error(err)
+			t.Fatal(err)
 		}
 		defer resp.Body.Close()
 

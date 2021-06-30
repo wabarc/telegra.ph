@@ -10,15 +10,19 @@ import (
 	"fmt"
 	"image"
 	"image/png"
+	"io"
 	"io/ioutil"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/cixtor/readability"
 	"github.com/kallydev/telegraph-go"
 	"github.com/oliamb/cutter"
@@ -26,6 +30,8 @@ import (
 	"github.com/wabarc/imgbb"
 	"github.com/wabarc/logger"
 	"github.com/wabarc/screenshot"
+	"golang.org/x/net/html"
+	"golang.org/x/net/html/charset"
 )
 
 type subject struct {
@@ -34,8 +40,11 @@ type subject struct {
 }
 
 type Archiver struct {
-	Author string
-	Shots  []screenshot.Screenshots
+	sync.RWMutex
+
+	Author   string
+	Shots    []screenshot.Screenshots
+	Articles map[string]readability.Article
 
 	client  *telegraph.Client
 	subject subject
@@ -152,20 +161,29 @@ func (arc *Archiver) Wayback(links []string) (map[string]string, error) {
 				return
 			}
 
-			article, err := readability.New().Parse(bytes.NewReader(shot.HTML), shot.URL)
+			arc.RLock()
+			article := arc.Articles[shot.URL]
+			arc.RUnlock()
+			if article.Content != "" {
+				logger.Debug("[telegraph] found content on Archiver.Articles")
+				goto post
+			}
+
+			article, err = readability.New().Parse(bytes.NewReader(shot.HTML), shot.URL)
 			if err != nil {
 				logger.Error("[telegraph] parse html failed: %v", err)
-				return
+				goto post
 			}
-			if article.TextContent == "" {
+			if article.Content == "" {
 				logger.Info("[telegraph] text content empty")
-				return
 			}
 			if strings.TrimSpace(shot.Title) == "" {
 				shot.Title = "Missing Title"
 			}
+
+		post:
 			arc.subject = subject{title: []rune(shot.Title), source: shot.URL}
-			arc.post(article.TextContent, file.Name(), ch)
+			arc.post(article.Content, file.Name(), ch)
 			// Replace posted result in the map
 			collect[shot.URL] = <-ch
 		}(shot)
@@ -203,40 +221,61 @@ func (arc *Archiver) post(content, imgpath string, ch chan<- string) {
 	}
 
 	nodes := []telegraph.Node{}
-	// nodes = append(nodes, "source: ")
-	// nodes = append(nodes, telegraph.NodeElement{
-	// 	Tag: "a",
-	// 	Attrs: map[string]string{
-	// 		"href":   arc.subject.source,
-	// 		"target": "_blank",
-	// 	},
-	// 	Children: []telegraph.Node{arc.subject.source},
-	// })
-	nodes = append(nodes, "screenshots: ")
-	for i, path := range paths {
-		nodes = append(nodes, telegraph.NodeElement{
-			Tag: "a",
-			Attrs: map[string]string{
-				"href":   path,
-				"target": "_blank",
+	if content == "" {
+		for _, path := range paths {
+			nodes = append(nodes, telegraph.NodeElement{
+				Tag: "img",
+				Attrs: map[string]string{
+					"src": path,
+					"alt": "",
+				},
+			})
+		}
+		nodes = []telegraph.Node{
+			telegraph.NodeElement{
+				Tag:      "p",
+				Children: nodes,
 			},
-			Children: []telegraph.Node{strconv.Itoa(i + 1)},
-		})
-	}
-	nodes = []telegraph.Node{
-		telegraph.NodeElement{
-			Tag:      "em",
-			Children: nodes,
-		},
-		telegraph.NodeElement{
-			Tag: "br",
-		},
-		telegraph.NodeElement{
-			Tag:      "p",
-			Children: []telegraph.Node{content},
-		},
+		}
+	} else {
+		nodes = append(nodes, "screenshots: ")
+		for i, path := range paths {
+			nodes = append(nodes, telegraph.NodeElement{
+				Tag: "a",
+				Attrs: map[string]string{
+					"href":   path,
+					"target": "_blank",
+				},
+				Children: []telegraph.Node{strconv.Itoa(i + 1)},
+			})
+		}
+		nodes = []telegraph.Node{
+			telegraph.NodeElement{
+				Tag:      "em",
+				Children: nodes,
+			},
+			telegraph.NodeElement{
+				Tag: "br",
+			},
+		}
 	}
 
+	body, er := charset.NewReader(strings.NewReader(content), "utf-8")
+	if er != nil || body == nil {
+		logger.Error("[telegraph] convert charset failed: %v", er)
+		goto create
+	}
+
+	// TODO: improvement for node large than 64 KB
+	logger.Debug("[telegraph] content: %#v", content)
+	if doc, err := goquery.NewDocumentFromReader(body); err == nil {
+		nodes = append(nodes, telegraph.NodeElement{
+			Tag:      "p",
+			Children: castNodes(traverseNodes(doc.Contents(), arc.client)),
+		})
+	}
+
+create:
 	var pat bool
 	var err error
 	var page *telegraph.Page
@@ -289,6 +328,7 @@ func (arc *Archiver) newClient() (*telegraph.Client, error) {
 func upload(filename string) (paths []string, err error) {
 	url, err := imgbb.NewImgBB(nil, "").Upload(filename)
 	if err != nil {
+		logger.Error("[telegraph] upload image to imgbb failed: %v", err)
 		return paths, err
 	}
 
@@ -391,4 +431,117 @@ func (arc *Archiver) ByRemote(addr string) *Archiver {
 	}
 
 	return arc
+}
+
+// copied from: https://github.com/meinside/telegraph-go/blob/8b212a807f0302374ab467d61011e9aa5d26fbd1/methods.go#L402
+func traverseNodes(selections *goquery.Selection, client *telegraph.Client) (nodes []telegraph.Node) {
+	var tag string
+	var attrs map[string]string
+	var element telegraph.NodeElement
+
+	selections.Each(func(_ int, child *goquery.Selection) {
+		for _, node := range child.Nodes {
+			switch node.Type {
+			case html.TextNode:
+				nodes = append(nodes, node.Data)
+			case html.ElementNode:
+				attrs = map[string]string{}
+				for _, attr := range node.Attr {
+					// Upload image to telegra.ph
+					if attr.Key == "src" && attr.Val != "" {
+						if newurl := uploadImage(client, attr.Val); newurl != "" {
+							attr.Val = newurl
+						}
+					}
+					attrs[attr.Key] = attr.Val
+				}
+				if len(node.Namespace) > 0 {
+					tag = fmt.Sprintf("%s.%s", node.Namespace, node.Data)
+				} else {
+					tag = node.Data
+				}
+				element = telegraph.NodeElement{
+					Tag:      tag,
+					Attrs:    attrs,
+					Children: traverseNodes(child.Contents(), client),
+				}
+				nodes = append(nodes, element)
+			}
+		}
+	})
+
+	return
+}
+
+func castNodes(nodes []telegraph.Node) (castNodes []telegraph.Node) {
+	for _, node := range nodes {
+		switch node.(type) {
+		case telegraph.NodeElement:
+			castNodes = append(castNodes, node)
+		default:
+			if cast, ok := node.(string); ok {
+				castNodes = append(castNodes, cast)
+			} else {
+				logger.Error("param casting error: %#v", node)
+			}
+		}
+	}
+
+	return castNodes
+}
+
+func download(u *url.URL) (path string, err error) {
+	// default path
+	if file, err := ioutil.TempFile(os.TempDir(), "telegraph-*"); err == nil {
+		path = file.Name()
+	}
+
+	// set a new path from url.URL.Path
+	if paths := strings.Split(u.Path, "/"); len(paths) > 0 {
+		path = paths[len(paths)-1]
+	}
+
+	path = filepath.Join(os.TempDir(), path)
+	fd, err := os.Create(path)
+	if err != nil {
+		return path, err
+	}
+	defer fd.Close()
+
+	resp, err := http.Get(u.String())
+	if err != nil {
+		return path, err
+	}
+	defer resp.Body.Close()
+
+	if _, err = io.Copy(fd, resp.Body); err != nil {
+		return path, err
+	}
+
+	return path, nil
+}
+
+func uploadImage(client *telegraph.Client, s string) (newurl string) {
+	u, err := url.Parse(s)
+	if err != nil {
+		logger.Error("[telegraph] parse url failed: %v", err)
+		return newurl
+	}
+
+	path, err := download(u)
+	if err != nil {
+		logger.Error("[telegraph] download image failed: %v", err)
+		return newurl
+	}
+	logger.Debug("[telegraph] downloaded image path: %s", path)
+
+	paths, err := client.Upload([]string{path})
+	if err != nil || len(paths) == 0 {
+		logger.Error("[telegraph] upload image failed: %v", err)
+		return newurl
+	}
+	newurl = paths[0] + "?orig=" + s
+	logger.Debug("[telegraph] new uri: %s", newurl)
+
+	return newurl
 }
