@@ -264,6 +264,8 @@ func TestWaybackWithShots(t *testing.T) {
 
 func TestSplitImage(t *testing.T) {
 	file := genImage()
+	defer os.Remove(file.Name())
+
 	paths, err := splitImage(file.Name(), 8976)
 	if err != nil {
 		t.Log(err)

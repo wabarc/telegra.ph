@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kallydev/telegraph-go"
@@ -92,6 +93,11 @@ func (arc *Archiver) Wayback(links []string) (map[string]string, error) {
 	defer cancel()
 
 	if len(arc.Shots) == 0 {
+		opts := []screenshot.ScreenshotOption{
+			screenshot.ScaleFactor(1),
+			screenshot.RawHTML(true),
+			screenshot.Quality(100),
+		}
 		if arc.browserRemoteAddr != nil {
 			addr := arc.browserRemoteAddr.(*net.TCPAddr)
 			remote, er := screenshot.NewChromeRemoteScreenshoter(addr.String())
@@ -99,9 +105,9 @@ func (arc *Archiver) Wayback(links []string) (map[string]string, error) {
 				logger.Debug("[telegraph] screenshot failed: %v", err)
 				return collect, err
 			}
-			arc.Shots, err = remote.Screenshot(ctx, matches, screenshot.ScaleFactor(1))
+			arc.Shots, err = remote.Screenshot(ctx, matches, opts...)
 		} else {
-			arc.Shots, err = screenshot.Screenshot(ctx, matches, screenshot.Quality(100))
+			arc.Shots, err = screenshot.Screenshot(ctx, matches, opts...)
 		}
 		if err != nil {
 			if err == context.DeadlineExceeded {
@@ -116,33 +122,39 @@ func (arc *Archiver) Wayback(links []string) (map[string]string, error) {
 	ch := make(chan string, len(collect))
 	defer close(ch)
 
+	var wg sync.WaitGroup
 	for _, shot := range arc.Shots {
-		if shot.URL == "" || shot.Image == nil {
-			collect[shot.URL] = "Screenshots failed."
-			logger.Debug("[telegraph] data empty")
-			continue
-		}
-		name := helper.FileName(shot.URL, "image/png")
-		file, err := ioutil.TempFile(os.TempDir(), "telegraph-*-"+name)
-		if err != nil {
-			logger.Debug("[telegraph] create temp dir failed: %v", err)
-			continue
-		}
-		defer os.Remove(file.Name())
+		wg.Add(1)
+		go func(shot screenshot.Screenshots) {
+			defer wg.Done()
+			if shot.URL == "" || shot.Image == nil {
+				collect[shot.URL] = "Screenshots failed."
+				logger.Debug("[telegraph] data empty")
+				return
+			}
+			name := helper.FileName(shot.URL, "image/png")
+			file, err := ioutil.TempFile(os.TempDir(), "telegraph-*-"+name)
+			if err != nil {
+				logger.Debug("[telegraph] create temp dir failed: %v", err)
+				return
+			}
+			defer os.Remove(file.Name())
 
-		if err := ioutil.WriteFile(file.Name(), shot.Image, 0o644); err != nil {
-			logger.Debug("[telegraph] write image failed: %v", err)
-			continue
-		}
+			if err := ioutil.WriteFile(file.Name(), shot.Image, 0o644); err != nil {
+				logger.Debug("[telegraph] write image failed: %v", err)
+				return
+			}
 
-		if strings.TrimSpace(shot.Title) == "" {
-			shot.Title = "Missing Title"
-		}
-		arc.subject = subject{title: []rune(shot.Title), source: shot.URL}
-		go arc.post(file.Name(), ch)
-		// Replace posted result in the map
-		collect[shot.URL] = <-ch
+			if strings.TrimSpace(shot.Title) == "" {
+				shot.Title = "Missing Title"
+			}
+			arc.subject = subject{title: []rune(shot.Title), source: shot.URL}
+			arc.post(file.Name(), ch)
+			// Replace posted result in the map
+			collect[shot.URL] = <-ch
+		}(shot)
 	}
+	wg.Wait()
 
 	return collect, nil
 }
