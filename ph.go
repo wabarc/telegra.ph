@@ -43,7 +43,7 @@ type Archiver struct {
 	sync.RWMutex
 
 	Author   string
-	Shots    []screenshot.Screenshots
+	Shot     screenshot.Screenshots
 	Articles map[string]readability.Article
 
 	client  *telegraph.Client
@@ -70,41 +70,22 @@ func (arc *Archiver) SetAuthor(author string) *Archiver {
 	return arc
 }
 
-// Shots return an Archiver struct with screenshot data
-func (arc *Archiver) SetShots(s []screenshot.Screenshots) *Archiver {
-	arc.Shots = s
+// Shot return an Archiver struct with screenshot data
+func (arc *Archiver) SetShot(s screenshot.Screenshots) *Archiver {
+	arc.Shot = s
 	return arc
 }
 
 // Wayback is the handle of saving webpages to telegra.ph
-func (arc *Archiver) Wayback(links []string) (map[string]string, error) {
-	collect := make(map[string]string)
-	var err error
-	var matches []string
-	for _, link := range links {
-		if !helper.IsURL(link) {
-			logger.Debug("[telegraph] " + link + " is invalid url.")
-			continue
-		}
-		collect[link] = link
-		matches = append(matches, link)
-	}
-
-	if len(collect) == 0 {
-		logger.Debug("[telegraph] URL no found")
-		return collect, fmt.Errorf("%s", "URL no found")
-	}
+func (arc *Archiver) Wayback(ctx context.Context, input *url.URL) (dst string, err error) {
 	client, err := arc.newClient()
 	if err != nil {
-		logger.Debug("[telegraph] dial client failed: %v", err)
-		return collect, err
+		logger.Error("[telegraph] dial client failed: %v", err)
+		return "", err
 	}
 	arc.client = client
 
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
-
-	if len(arc.Shots) == 0 {
+	if arc.Shot.HTML == nil {
 		opts := []screenshot.ScreenshotOption{
 			screenshot.ScaleFactor(1),
 			screenshot.RawHTML(true),
@@ -115,88 +96,79 @@ func (arc *Archiver) Wayback(links []string) (map[string]string, error) {
 			remote, er := screenshot.NewChromeRemoteScreenshoter(addr.String())
 			if er != nil {
 				logger.Debug("[telegraph] screenshot failed: %v", err)
-				return collect, err
+				return dst, err
 			}
-			arc.Shots, err = remote.Screenshot(ctx, matches, opts...)
+			arc.Shot, err = remote.Screenshot(ctx, input, opts...)
 		} else {
-			arc.Shots, err = screenshot.Screenshot(ctx, matches, opts...)
+			arc.Shot, err = screenshot.Screenshot(ctx, input, opts...)
 		}
 		if err != nil {
 			if err == context.DeadlineExceeded {
 				logger.Debug("[telegraph] screenshot deadline: %v", err)
-				return collect, err
+				return dst, err
 			}
 			logger.Debug("[telegraph] screenshot error: %v", err)
-			return collect, err
+			return dst, err
 		}
 	}
 
-	ch := make(chan string, len(collect))
-	defer close(ch)
-
-	var wg sync.WaitGroup
-	for _, shot := range arc.Shots {
-		if shot.HTML == nil {
-			logger.Info("[telegraph] missing raw html, skipped")
-			continue
-		}
-		wg.Add(1)
-		go func(shot screenshot.Screenshots) {
-			defer wg.Done()
-			if shot.URL == "" || shot.Image == nil {
-				collect[shot.URL] = "Screenshots failed."
-				logger.Debug("[telegraph] data empty")
-				return
-			}
-			name := helper.FileName(shot.URL, "image/png")
-			file, err := ioutil.TempFile(os.TempDir(), "telegraph-*-"+name)
-			if err != nil {
-				logger.Debug("[telegraph] create temp dir failed: %v", err)
-				return
-			}
-			defer os.Remove(file.Name())
-
-			if err := ioutil.WriteFile(file.Name(), shot.Image, 0o644); err != nil {
-				logger.Debug("[telegraph] write image failed: %v", err)
-				return
-			}
-
-			arc.RLock()
-			article := arc.Articles[shot.URL]
-			arc.RUnlock()
-			if article.Content != "" {
-				logger.Debug("[telegraph] found content on Archiver.Articles")
-				goto post
-			}
-
-			article, err = readability.New().Parse(bytes.NewReader(shot.HTML), shot.URL)
-			if err != nil {
-				logger.Error("[telegraph] parse html failed: %v", err)
-				goto post
-			}
-			if article.Content == "" {
-				logger.Info("[telegraph] text content empty")
-			}
-			if strings.TrimSpace(shot.Title) == "" {
-				shot.Title = "Missing Title"
-			}
-
-		post:
-			arc.subject = subject{title: []rune(shot.Title), source: shot.URL}
-			arc.post(article.Content, file.Name(), ch)
-			// Replace posted result in the map
-			collect[shot.URL] = <-ch
-		}(shot)
+	shot := arc.Shot
+	if shot.HTML == nil {
+		logger.Info("[telegraph] missing raw html, skipped")
+		return "", fmt.Errorf("missing raw html")
 	}
-	wg.Wait()
 
-	return collect, nil
+	if shot.URL == "" || shot.Image == nil {
+		logger.Debug("[telegraph] data empty")
+		return "", fmt.Errorf("data empty")
+	}
+
+	name := helper.FileName(shot.URL, "image/png")
+	file, err := ioutil.TempFile(os.TempDir(), "telegraph-*-"+name)
+	if err != nil {
+		logger.Error("[telegraph] create temp dir failed: %v", err)
+		return "", err
+	}
+	defer os.Remove(file.Name())
+
+	if err := ioutil.WriteFile(file.Name(), shot.Image, 0o644); err != nil {
+		logger.Error("[telegraph] write image failed: %v", err)
+		return "", err
+	}
+
+	arc.RLock()
+	article := arc.Articles[shot.URL]
+	arc.RUnlock()
+	if article.Content != "" {
+		logger.Debug("[telegraph] found content on Archiver.Articles")
+		goto post
+	}
+
+	article, err = readability.New().Parse(bytes.NewReader(shot.HTML), shot.URL)
+	if err != nil {
+		logger.Error("[telegraph] parse html failed: %v", err)
+		goto post
+	}
+	if article.Content == "" {
+		logger.Info("[telegraph] text content empty")
+	}
+	if strings.TrimSpace(shot.Title) == "" {
+		shot.Title = "Missing Title"
+	}
+
+post:
+	arc.subject = subject{title: []rune(shot.Title), source: shot.URL}
+	dst, err = arc.post(article.Content, file.Name())
+	if err != nil {
+		return "", err
+	}
+
+	return dst, nil
 }
 
-func (arc *Archiver) post(content, imgpath string, ch chan<- string) {
+func (arc *Archiver) post(content, imgpath string) (dst string, err error) {
 	if len(arc.subject.title) == 0 {
-		ch <- "Title is required"
-		return
+		return "", fmt.Errorf("Title is required")
 	}
 	if len(arc.subject.title) > 256 {
 		arc.subject.title = arc.subject.title[:256]
@@ -205,19 +177,16 @@ func (arc *Archiver) post(content, imgpath string, ch chan<- string) {
 	// Telegraph image height limit upper 8976 px
 	// crops, err := splitImage(imgpath, 8000)
 	// if err != nil {
-	// 	ch <- fmt.Sprintf("%v", err)
-	// 	return
+	// 	return "", err
 	// }
 
 	// paths, err := arc.client.Upload(crops)
 	// if err != nil {
-	// 	ch <- fmt.Sprintf("%v", err)
-	// 	return
+	// 	return "", err
 	// }
 	paths, er := upload(imgpath)
 	if er != nil {
-		ch <- fmt.Sprintf("%v", er)
-		return
+		return "", er
 	}
 
 	nodes := []telegraph.Node{}
@@ -277,15 +246,13 @@ func (arc *Archiver) post(content, imgpath string, ch chan<- string) {
 
 create:
 	var pat bool
-	var err error
 	var page *telegraph.Page
 	var title = string(arc.subject.title)
 	if page, err = arc.client.CreatePage(title, nodes, nil); err != nil {
 		// Create page with random path if title illegal previous
 		if page, err = arc.client.CreatePage(helper.RandString(6, ""), nodes, nil); err != nil {
 			logger.Error("[telegraph] create page failed: %v", err)
-			ch <- "FAILED"
-			return
+			return "", err
 		}
 		pat = true
 	}
@@ -297,15 +264,14 @@ create:
 	}
 	if page, err = arc.client.EditPage(page.Path, title, nodes, opts); err != nil {
 		logger.Error("[telegraph] edit page failed: %v", err)
-		ch <- "FAILED"
-		return
+		return "", err
 	}
 
 	if pat {
 		page.URL += "?title=" + url.PathEscape(title)
 	}
 
-	ch <- page.URL
+	return page.URL, nil
 }
 
 func (arc *Archiver) newClient() (*telegraph.Client, error) {

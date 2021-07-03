@@ -5,9 +5,13 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
+	"sync"
+	"time"
 
 	"github.com/wabarc/telegra.ph"
 )
@@ -25,8 +29,30 @@ func main() {
 	}
 
 	wbrc := &ph.Archiver{}
-	published, _ := wbrc.Wayback(args)
-	for orig, dest := range published {
-		fmt.Println(orig, "=>", dest)
+	process(wbrc.Wayback, args)
+}
+
+func process(f func(context.Context, *url.URL) (string, error), args []string) {
+	var wg sync.WaitGroup
+	for _, arg := range args {
+		wg.Add(1)
+		go func(link string) {
+			defer wg.Done()
+			u, err := url.Parse(link)
+			if err != nil {
+				fmt.Println(link, "=>", fmt.Sprintf("%v", err))
+				return
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+
+			r, err := f(ctx, u)
+			if err != nil {
+				fmt.Println(link, "=>", fmt.Sprintf("%v", err))
+				return
+			}
+			fmt.Println(link, "=>", r)
+		}(arg)
 	}
+	wg.Wait()
 }

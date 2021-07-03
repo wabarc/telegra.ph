@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -76,12 +77,11 @@ func TestPost(t *testing.T) {
 	arc.client = client
 	arc.subject = subject{title: []rune("testing"), source: "http://example.org"}
 
-	ch := make(chan string, 1)
-	defer close(ch)
+	dest, err := arc.post("", f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	go arc.post("", f.Name(), ch)
-
-	dest := <-ch
 	t.Log("URL:", dest)
 
 	resp, err := http.Get(dest)
@@ -114,31 +114,28 @@ func TestWayback(t *testing.T) {
 	`))
 	defer ts.Close()
 
-	urls := []string{ts.URL}
-	arc := &Archiver{}
-	archived, err := arc.Wayback(urls)
+	input, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Error(err)
-	}
-	if len(archived) == 0 {
-		t.Fail()
+		t.Fatal(err)
 	}
 
-	for link, r := range archived {
-		if link != ts.URL {
-			t.Log("URL no matched", ",expect:", ts.URL, ",got:", link)
-			t.Fail()
-		}
+	arc := &Archiver{}
+	dst, err := arc.Wayback(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dst == "" {
+		t.Fatal("destination url empty")
+	}
 
-		resp, err := http.Get(r)
-		if err != nil {
-			t.Error(err)
-		}
-		defer resp.Body.Close()
+	resp, err := http.Get(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
 
-		if resp.StatusCode == 404 {
-			t.Fail()
-		}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Unexpected wayback to telegra.ph, got status code %d instead of 200", resp.StatusCode)
 	}
 }
 
@@ -183,31 +180,28 @@ func TestWaybackByRemote(t *testing.T) {
 		}
 	}()
 
-	urls := []string{ts.URL}
-	arc := New().ByRemote("127.0.0.1:9222")
-	archived, err := arc.Wayback(urls)
+	input, err := url.Parse(ts.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(archived) == 0 {
-		t.FailNow()
+
+	arc := New().ByRemote("127.0.0.1:9222")
+	dst, err := arc.Wayback(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dst == "" {
+		t.Fatal("destination url empty")
 	}
 
-	for link, r := range archived {
-		if link != ts.URL {
-			t.Log("URL no matched", ",expect:", ts.URL, ",got:", link)
-			t.Fail()
-		}
+	resp, err := http.Get(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
 
-		resp, err := http.Get(r)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode == 404 {
-			t.Fail()
-		}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Unexpected wayback to telegra.ph by remote headless, got status code %d instead of 200", resp.StatusCode)
 	}
 }
 
@@ -230,35 +224,31 @@ func TestWaybackWithShots(t *testing.T) {
 	`))
 	defer ts.Close()
 
-	urls := []string{ts.URL}
-	arc := &Archiver{}
-	var err error
-	if arc.Shots, err = screenshot.Screenshot(context.Background(), urls, screenshot.Quality(100)); err != nil {
+	input, err := url.Parse(ts.URL)
+	if err != nil {
 		t.Fatal(err)
 	}
-	archived, err := arc.Wayback(urls)
+
+	arc := &Archiver{}
+	if arc.Shot, err = screenshot.Screenshot(context.Background(), input, screenshot.Quality(100)); err != nil {
+		t.Fatal(err)
+	}
+	dst, err := arc.Wayback(context.Background(), input)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
-	if len(archived) == 0 {
-		t.Fail()
+	if dst == "" {
+		t.Fatal("destination url empty")
 	}
 
-	for link, r := range archived {
-		if link != ts.URL {
-			t.Log("URL no matched", ",expect:", ts.URL, ",got:", link)
-			t.Fail()
-		}
+	resp, err := http.Get(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
 
-		resp, err := http.Get(r)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode == 404 {
-			t.Fail()
-		}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Unexpected wayback to telegra.ph with shots, got status code %d instead of 200", resp.StatusCode)
 	}
 }
 
