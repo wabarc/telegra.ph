@@ -31,7 +31,6 @@ import (
 	"github.com/wabarc/logger"
 	"github.com/wabarc/screenshot"
 	"golang.org/x/net/html"
-	"golang.org/x/net/html/charset"
 )
 
 type subject struct {
@@ -229,22 +228,15 @@ func (arc *Archiver) post(content, imgpath string) (dst string, err error) {
 		}
 	}
 
-	body, er := charset.NewReader(strings.NewReader(content), "utf-8")
-	if er != nil || body == nil {
-		logger.Error("[telegraph] convert charset failed: %v", er)
-		goto create
-	}
-
 	// TODO: improvement for node large than 64 KB
 	logger.Debug("[telegraph] content: %#v", content)
-	if doc, err := goquery.NewDocumentFromReader(body); err == nil {
+	if doc, err := goquery.NewDocumentFromReader(strings.NewReader(content)); err == nil {
 		nodes = append(nodes, telegraph.NodeElement{
 			Tag:      "p",
 			Children: castNodes(traverseNodes(doc.Contents(), arc.client)),
 		})
 	}
 
-create:
 	var pat bool
 	var page *telegraph.Page
 	var title = string(arc.subject.title)
