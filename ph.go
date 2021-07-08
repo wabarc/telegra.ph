@@ -401,12 +401,14 @@ func traverseNodes(selections *goquery.Selection, client *telegraph.Client) (nod
 		for _, node := range child.Nodes {
 			switch node.Type {
 			case html.TextNode:
-				nodes = append(nodes, node.Data)
+				if len(strings.TrimSpace(node.Data)) > 0 {
+					nodes = append(nodes, node.Data)
+				}
 			case html.ElementNode:
 				attrs = map[string]string{}
 				for _, attr := range node.Attr {
 					// Upload image to telegra.ph
-					if attr.Key == "src" && attr.Val != "" {
+					if attr.Key == "src" || attr.Key == "data-src" {
 						if newurl := uploadImage(client, attr.Val); newurl != "" {
 							attr.Val = newurl
 						}
