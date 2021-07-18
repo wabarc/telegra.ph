@@ -23,7 +23,8 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/cixtor/readability"
+	"github.com/gabriel-vasile/mimetype"
+	"github.com/go-shiori/go-readability"
 	"github.com/kallydev/telegraph-go"
 	"github.com/oliamb/cutter"
 	"github.com/wabarc/helper"
@@ -143,7 +144,7 @@ func (arc *Archiver) Wayback(ctx context.Context, input *url.URL) (dst string, e
 		goto post
 	}
 
-	article, err = readability.New().Parse(bytes.NewReader(shot.HTML), shot.URL)
+	article, err = readability.FromReader(bytes.NewReader(shot.HTML), input)
 	if err != nil {
 		logger.Error("[telegraph] parse html failed: %v", err)
 		goto post
@@ -451,17 +452,7 @@ func castNodes(nodes []telegraph.Node) (castNodes []telegraph.Node) {
 }
 
 func download(u *url.URL) (path string, err error) {
-	// default path
-	if file, err := ioutil.TempFile(os.TempDir(), "telegraph-*"); err == nil {
-		path = file.Name()
-	}
-
-	// set a new path from url.URL.Path
-	if paths := strings.Split(u.Path, "/"); len(paths) > 0 {
-		path = paths[len(paths)-1]
-	}
-
-	path = filepath.Join(os.TempDir(), path)
+	path = filepath.Join(os.TempDir(), helper.RandString(21, "lower"))
 	fd, err := os.Create(path)
 	if err != nil {
 		return path, err
@@ -482,6 +473,7 @@ func download(u *url.URL) (path string, err error) {
 }
 
 func uploadImage(client *telegraph.Client, s string) (newurl string) {
+	logger.Debug("[telegraph] uri: %s", s)
 	u, err := url.Parse(s)
 	if err != nil {
 		logger.Error("[telegraph] parse url failed: %v", err)
@@ -493,11 +485,25 @@ func uploadImage(client *telegraph.Client, s string) (newurl string) {
 		logger.Error("[telegraph] download image failed: %v", err)
 		return newurl
 	}
+	defer os.Remove(path)
 	logger.Debug("[telegraph] downloaded image path: %s", path)
+
+	mtype, _ := mimetype.DetectFile(path)
+	logger.Debug("[telegraph] content type: %s", mtype.String())
+	if mtype.Is("image/webp") {
+		dst := path + ".png"
+		if err := helper.WebPToPNG(path, dst); err != nil {
+			logger.Error("[telegraph] convert webp failed: %v", err)
+		} else {
+			defer os.Remove(dst)
+			logger.Debug("[telegraph] converted image path: %s", dst)
+			path = dst
+		}
+	}
 
 	paths, err := client.Upload([]string{path})
 	if err != nil || len(paths) == 0 {
-		logger.Error("[telegraph] upload image failed: %v", err)
+		logger.Error("[telegraph] upload image %s content-type %s failed: %v", path, mtype, err)
 		return newurl
 	}
 	newurl = paths[0] + "?orig=" + s
