@@ -387,7 +387,7 @@ func traverseNodes(selections *goquery.Selection, client *telegraph.Client) (nod
 			switch node.Type {
 			case html.TextNode:
 				if len(strings.TrimSpace(node.Data)) > 0 {
-					nodes = append(nodes, node.Data)
+					nodes = append(nodes, html.EscapeString(node.Data))
 				}
 			case html.ElementNode:
 				attrs = map[string]string{}
