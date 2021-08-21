@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/wabarc/telegra.ph"
 )
 
@@ -40,7 +41,7 @@ func process(f func(context.Context, *url.URL) (string, error), args []string) {
 			defer wg.Done()
 			u, err := url.Parse(link)
 			if err != nil {
-				fmt.Println(link, "=>", fmt.Sprintf("%v", err))
+				fmt.Println(link, "=>", fmt.Sprintf("%v", errors.WithStack(err)))
 				return
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -48,7 +49,7 @@ func process(f func(context.Context, *url.URL) (string, error), args []string) {
 
 			r, err := f(ctx, u)
 			if err != nil {
-				fmt.Println(link, "=>", fmt.Sprintf("%v", err))
+				fmt.Println(link, "=>", fmt.Sprintf("%v", errors.WithStack(err)))
 				return
 			}
 			fmt.Println(link, "=>", r)

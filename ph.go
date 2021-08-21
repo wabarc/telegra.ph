@@ -27,6 +27,7 @@ import (
 	"github.com/go-shiori/go-readability"
 	"github.com/kallydev/telegraph-go"
 	"github.com/oliamb/cutter"
+	"github.com/pkg/errors"
 	"github.com/wabarc/helper"
 	"github.com/wabarc/imgbb"
 	"github.com/wabarc/logger"
@@ -80,8 +81,7 @@ func (arc *Archiver) SetShot(s screenshot.Screenshots) *Archiver {
 func (arc *Archiver) Wayback(ctx context.Context, input *url.URL) (dst string, err error) {
 	client, err := arc.newClient()
 	if err != nil {
-		logger.Error("[telegraph] dial client failed: %v", err)
-		return "", err
+		return "", errors.Wrap(err, `dial client failed`)
 	}
 	arc.client = client
 
@@ -95,8 +95,7 @@ func (arc *Archiver) Wayback(ctx context.Context, input *url.URL) (dst string, e
 			addr := arc.browserRemoteAddr.(*net.TCPAddr)
 			remote, er := screenshot.NewChromeRemoteScreenshoter(addr.String())
 			if er != nil {
-				logger.Debug("[telegraph] screenshot failed: %v", err)
-				return dst, err
+				return dst, errors.Wrap(err, `screenshot failed`)
 			}
 			arc.Shot, err = remote.Screenshot(ctx, input, opts...)
 		} else {
@@ -104,53 +103,42 @@ func (arc *Archiver) Wayback(ctx context.Context, input *url.URL) (dst string, e
 		}
 		if err != nil {
 			if err == context.DeadlineExceeded {
-				logger.Debug("[telegraph] screenshot deadline: %v", err)
-				return dst, err
+				return dst, errors.Wrap(err, `screenshot deadline`)
 			}
-			logger.Debug("[telegraph] screenshot error: %v", err)
-			return dst, err
+			return dst, errors.Wrap(err, `screenshot error`)
 		}
 	}
 
 	shot := arc.Shot
 	if shot.HTML == nil {
-		logger.Info("[telegraph] missing raw html, skipped")
-		return "", fmt.Errorf("missing raw html")
+		return "", errors.New("missing raw html")
 	}
 
 	if shot.URL == "" || shot.Image == nil {
-		logger.Debug("[telegraph] data empty")
-		return "", fmt.Errorf("data empty")
+		return "", errors.New("data empty")
 	}
 
 	name := helper.FileName(shot.URL, "image/png")
 	file, err := ioutil.TempFile(os.TempDir(), "telegraph-*-"+name)
 	if err != nil {
-		logger.Error("[telegraph] create temp dir failed: %v", err)
-		return "", err
+		return "", errors.Wrap(err, `create temp dir failed`)
 	}
 	defer os.Remove(file.Name())
 
 	if err := ioutil.WriteFile(file.Name(), shot.Image, 0o644); err != nil {
-		logger.Error("[telegraph] write image failed: %v", err)
-		return "", err
+		return "", errors.Wrap(err, `write image failed`)
 	}
 
 	arc.RLock()
 	article := arc.Articles[shot.URL]
 	arc.RUnlock()
 	if article.Content != "" {
-		logger.Debug("[telegraph] found content on Archiver.Articles")
 		goto post
 	}
 
 	article, err = readability.FromReader(bytes.NewReader(shot.HTML), input)
 	if err != nil {
-		logger.Error("[telegraph] parse html failed: %v", err)
 		goto post
-	}
-	if article.Content == "" {
-		logger.Info("[telegraph] text content empty")
 	}
 	if strings.TrimSpace(shot.Title) == "" {
 		shot.Title = "Missing Title"
@@ -244,8 +232,7 @@ func (arc *Archiver) post(content, imgpath string) (dst string, err error) {
 	if page, err = arc.client.CreatePage(title, nodes, nil); err != nil {
 		// Create page with random path if title illegal previous
 		if page, err = arc.client.CreatePage(helper.RandString(6, ""), nodes, nil); err != nil {
-			logger.Error("[telegraph] create page failed: %v", err)
-			return "", err
+			return "", errors.Wrap(err, `create page failed`)
 		}
 		pat = true
 	}
@@ -256,8 +243,7 @@ func (arc *Archiver) post(content, imgpath string) (dst string, err error) {
 		ReturnContent: false,
 	}
 	if page, err = arc.client.EditPage(page.Path, title, nodes, opts); err != nil {
-		logger.Error("[telegraph] edit page failed: %v", err)
-		return "", err
+		return "", errors.Wrap(err, `edit page failed`)
 	}
 
 	if pat {
@@ -287,8 +273,7 @@ func (arc *Archiver) newClient() (*telegraph.Client, error) {
 func upload(filename string) (paths []string, err error) {
 	url, err := imgbb.NewImgBB(nil, "").Upload(filename)
 	if err != nil {
-		logger.Error("[telegraph] upload image to imgbb failed: %v", err)
-		return paths, err
+		return paths, errors.Wrap(err, `upload image to imgbb failed`)
 	}
 
 	return []string{url}, nil
@@ -324,8 +309,7 @@ func splitImage(name string, height int) (paths []string, err error) {
 			Anchor: image.Point{0, point},
 		})
 		if err != nil {
-			logger.Debug("[telegraph] crop image failed: %v", err)
-			return paths, err
+			return paths, errors.Wrap(err, `crop image failed`)
 		}
 
 		if dim.Height-point < height {
@@ -488,7 +472,12 @@ func uploadImage(client *telegraph.Client, s string) (newurl string) {
 	defer os.Remove(path)
 	logger.Debug("[telegraph] downloaded image path: %s", path)
 
-	mtype, _ := mimetype.DetectFile(path)
+	mtype, err := mimetype.DetectFile(path)
+	if os.IsNotExist(err) {
+		logger.Warn("[telegraph] file %s not exist", path)
+		return newurl
+	}
+
 	logger.Debug("[telegraph] content type: %s", mtype.String())
 	if mtype.Is("image/webp") {
 		dst := path + ".png"
