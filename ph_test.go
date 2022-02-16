@@ -2,7 +2,7 @@
 // Use of this source code is governed by the GNU GPL v3
 // license that can be found in the LICENSE file.
 
-package ph // import "github.com/wabarc/telegra.ph/pkg"
+package ph // import "github.com/wabarc/telegra.ph"
 
 import (
 	"context"
@@ -75,9 +75,9 @@ func TestPost(t *testing.T) {
 		t.Error(err)
 	}
 	arc.client = client
-	arc.subject = subject{title: []rune("testing"), source: "http://example.org"}
+	sub := subject{title: []rune("testing"), source: "http://example.org"}
 
-	dest, err := arc.post("", f.Name())
+	dest, err := arc.post(sub, "", f.Name())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,6 +96,11 @@ func TestPost(t *testing.T) {
 }
 
 func TestWayback(t *testing.T) {
+	binPath := helper.FindChromeExecPath()
+	if _, err := exec.LookPath(binPath); err != nil {
+		t.Skip("Chrome headless browser no found, skipped")
+	}
+
 	ts := httptest.NewServer(writeHTML(`
 <html>
 <head>
@@ -206,6 +211,11 @@ func TestWaybackByRemote(t *testing.T) {
 }
 
 func TestWaybackWithShots(t *testing.T) {
+	binPath := helper.FindChromeExecPath()
+	if _, err := exec.LookPath(binPath); err != nil {
+		t.Skip("Chrome headless browser no found, skipped")
+	}
+
 	ts := httptest.NewServer(writeHTML(`
 <html>
 <head>
@@ -230,9 +240,12 @@ func TestWaybackWithShots(t *testing.T) {
 	}
 
 	arc := &Archiver{}
-	if arc.Shot, err = screenshot.Screenshot(context.Background(), input, screenshot.Quality(100)); err != nil {
+	ctx := context.Background()
+	shot, err := screenshot.Screenshot(ctx, input, screenshot.Quality(100))
+	if err != nil {
 		t.Fatal(err)
 	}
+	ctx = arc.WithShot(ctx, shot)
 	dst, err := arc.Wayback(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)

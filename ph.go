@@ -25,6 +25,7 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/go-shiori/go-readability"
+	"github.com/go-shiori/obelisk"
 	"github.com/kallydev/telegraph-go"
 	"github.com/oliamb/cutter"
 	"github.com/pkg/errors"
@@ -43,12 +44,9 @@ type subject struct {
 type Archiver struct {
 	sync.RWMutex
 
-	Author   string
-	Shot     screenshot.Screenshots
-	Articles map[string]readability.Article
+	Author string
 
-	client  *telegraph.Client
-	subject subject
+	client *telegraph.Client
 
 	browserRemoteAddr net.Addr
 }
@@ -71,10 +69,32 @@ func (arc *Archiver) SetAuthor(author string) *Archiver {
 	return arc
 }
 
-// Shot return an Archiver struct with screenshot data
-func (arc *Archiver) SetShot(s screenshot.Screenshots) *Archiver {
-	arc.Shot = s
-	return arc
+type ctxKeyShot struct{}
+
+// WithShot puts a screenshot.Screenshots into context.
+func (arc *Archiver) WithShot(ctx context.Context, shot screenshot.Screenshots) context.Context {
+	return context.WithValue(ctx, ctxKeyShot{}, shot)
+}
+
+func shotFromContext(ctx context.Context) screenshot.Screenshots {
+	if shot, ok := ctx.Value(ctxKeyShot{}).(screenshot.Screenshots); ok {
+		return shot
+	}
+	return screenshot.Screenshots{}
+}
+
+type ctxKeyArticle struct{}
+
+// WithArticle puts a readability.Article into context.
+func (arc *Archiver) WithArticle(ctx context.Context, art readability.Article) context.Context {
+	return context.WithValue(ctx, ctxKeyArticle{}, art)
+}
+
+func articleFromContext(ctx context.Context) readability.Article {
+	if art, ok := ctx.Value(ctxKeyArticle{}).(readability.Article); ok {
+		return art
+	}
+	return readability.Article{}
 }
 
 // Wayback is the handle of saving webpages to telegra.ph
@@ -85,7 +105,8 @@ func (arc *Archiver) Wayback(ctx context.Context, input *url.URL) (dst string, e
 	}
 	arc.client = client
 
-	if arc.Shot.HTML == nil {
+	shot := shotFromContext(ctx)
+	if shot.HTML == nil {
 		opts := []screenshot.ScreenshotOption{
 			screenshot.ScaleFactor(1),
 			screenshot.RawHTML(true),
@@ -97,9 +118,9 @@ func (arc *Archiver) Wayback(ctx context.Context, input *url.URL) (dst string, e
 			if er != nil {
 				return dst, errors.Wrap(err, `screenshot failed`)
 			}
-			arc.Shot, err = remote.Screenshot(ctx, input, opts...)
+			shot, err = remote.Screenshot(ctx, input, opts...)
 		} else {
-			arc.Shot, err = screenshot.Screenshot(ctx, input, opts...)
+			shot, err = screenshot.Screenshot(ctx, input, opts...)
 		}
 		if err != nil {
 			if err == context.DeadlineExceeded {
@@ -109,9 +130,11 @@ func (arc *Archiver) Wayback(ctx context.Context, input *url.URL) (dst string, e
 		}
 	}
 
-	shot := arc.Shot
 	if shot.HTML == nil {
-		return "", errors.New("missing raw html")
+		shot.HTML, err = arc.download(ctx, input)
+		if err != nil {
+			return "", errors.Wrap(err, `download webpage via obelisk failed`)
+		}
 	}
 
 	if shot.URL == "" || shot.Image == nil {
@@ -129,9 +152,7 @@ func (arc *Archiver) Wayback(ctx context.Context, input *url.URL) (dst string, e
 		return "", errors.Wrap(err, `write image failed`)
 	}
 
-	arc.RLock()
-	article := arc.Articles[shot.URL]
-	arc.RUnlock()
+	article := articleFromContext(ctx)
 	if article.Content != "" {
 		goto post
 	}
@@ -145,8 +166,8 @@ func (arc *Archiver) Wayback(ctx context.Context, input *url.URL) (dst string, e
 	}
 
 post:
-	arc.subject = subject{title: []rune(shot.Title), source: shot.URL}
-	dst, err = arc.post(article.Content, file.Name())
+	sub := subject{title: []rune(shot.Title), source: shot.URL}
+	dst, err = arc.post(sub, article.Content, file.Name())
 	if err != nil {
 		return "", err
 	}
@@ -154,12 +175,26 @@ post:
 	return dst, nil
 }
 
-func (arc *Archiver) post(content, imgpath string) (dst string, err error) {
-	if len(arc.subject.title) == 0 {
+func (arc *Archiver) download(ctx context.Context, uri *url.URL) ([]byte, error) {
+	req := obelisk.Request{URL: uri.String()}
+	obe := &obelisk.Archiver{
+		SkipResourceURLError: true,
+	}
+	obe.Validate()
+
+	buf, _, err := obe.Archive(ctx, req)
+	if err != nil {
+		return nil, errors.Wrap(err, "archive failed")
+	}
+	return buf, nil
+}
+
+func (arc *Archiver) post(sub subject, content, imgpath string) (dst string, err error) {
+	if len(sub.title) == 0 {
 		return "", fmt.Errorf("Title is required")
 	}
-	if len(arc.subject.title) > 256 {
-		arc.subject.title = arc.subject.title[:256]
+	if len(sub.title) > 256 {
+		sub.title = sub.title[:255]
 	}
 
 	// Telegraph image height limit upper 8976 px
@@ -228,7 +263,7 @@ func (arc *Archiver) post(content, imgpath string) (dst string, err error) {
 
 	var pat bool
 	var page *telegraph.Page
-	var title = string(arc.subject.title)
+	var title = string(sub.title)
 	if page, err = arc.client.CreatePage(title, nodes, nil); err != nil {
 		// Create page with random path if title illegal previous
 		if page, err = arc.client.CreatePage(helper.RandString(6, ""), nodes, nil); err != nil {
@@ -239,7 +274,7 @@ func (arc *Archiver) post(content, imgpath string) (dst string, err error) {
 
 	opts := &telegraph.EditPageOption{
 		AuthorName:    "Source",
-		AuthorURL:     arc.subject.source,
+		AuthorURL:     sub.source,
 		ReturnContent: false,
 	}
 	if page, err = arc.client.EditPage(page.Path, title, nodes, opts); err != nil {
