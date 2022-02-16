@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/cenkalti/backoff/v4"
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/go-shiori/go-readability"
 	"github.com/go-shiori/obelisk"
@@ -34,6 +35,11 @@ import (
 	"github.com/wabarc/logger"
 	"github.com/wabarc/screenshot"
 	"golang.org/x/net/html"
+)
+
+const (
+	maxElapsedTime = 5 * time.Minute
+	maxRetries     = 10
 )
 
 type subject struct {
@@ -207,9 +213,16 @@ func (arc *Archiver) post(sub subject, content, imgpath string) (dst string, err
 	// if err != nil {
 	// 	return "", err
 	// }
-	paths, er := upload(imgpath)
-	if er != nil {
-		return "", er
+	var paths []string
+	action := func() error {
+		paths, err = upload(imgpath)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+	if err = doRetry(action); err != nil {
+		return "", errors.Wrap(err, "upload image to ImgBB failed")
 	}
 
 	nodes := []telegraph.Node{}
@@ -429,9 +442,15 @@ func traverseNodes(selections *goquery.Selection, client *telegraph.Client) (nod
 				for _, attr := range node.Attr {
 					// Upload image to telegra.ph
 					if attr.Key == "src" || attr.Key == "data-src" {
-						if newurl := uploadImage(client, attr.Val); newurl != "" {
+						action := func() error {
+							newurl, err := uploadImage(client, attr.Val)
+							if err != nil {
+								return err
+							}
 							attr.Val = newurl
+							return nil
 						}
+						_ = doRetry(action)
 					}
 					attrs[attr.Key] = attr.Val
 				}
@@ -491,26 +510,23 @@ func download(u *url.URL) (path string, err error) {
 	return path, nil
 }
 
-func uploadImage(client *telegraph.Client, s string) (newurl string) {
+func uploadImage(client *telegraph.Client, s string) (newurl string, err error) {
 	logger.Debug("[telegraph] uri: %s", s)
 	u, err := url.Parse(s)
 	if err != nil {
-		logger.Error("[telegraph] parse url failed: %v", err)
-		return newurl
+		return newurl, err
 	}
 
 	path, err := download(u)
 	if err != nil {
-		logger.Error("[telegraph] download image failed: %v", err)
-		return newurl
+		return newurl, errors.Wrap(err, "download image failed")
 	}
 	defer os.Remove(path)
 	logger.Debug("[telegraph] downloaded image path: %s", path)
 
 	mtype, err := mimetype.DetectFile(path)
 	if os.IsNotExist(err) {
-		logger.Warn("[telegraph] file %s not exist", path)
-		return newurl
+		return newurl, errors.Wrap(err, fmt.Sprintf("file %s not exist", path))
 	}
 
 	logger.Debug("[telegraph] content type: %s", mtype.String())
@@ -527,11 +543,18 @@ func uploadImage(client *telegraph.Client, s string) (newurl string) {
 
 	paths, err := client.Upload([]string{path})
 	if err != nil || len(paths) == 0 {
-		logger.Error("[telegraph] upload image %s content-type %s failed: %v", path, mtype, err)
-		return newurl
+		return newurl, errors.Wrap(err, fmt.Sprintf("upload image %s content-type %s failed", path, mtype))
 	}
 	newurl = paths[0] + "?orig=" + s
 	logger.Debug("[telegraph] new uri: %s", newurl)
 
-	return newurl
+	return newurl, nil
+}
+
+func doRetry(op backoff.Operation) error {
+	exp := backoff.NewExponentialBackOff()
+	exp.MaxElapsedTime = maxElapsedTime
+	bo := backoff.WithMaxRetries(exp, maxRetries)
+
+	return backoff.Retry(op, bo)
 }

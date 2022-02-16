@@ -4,6 +4,7 @@ go 1.15
 
 require (
 	github.com/PuerkitoBio/goquery v1.7.1
+	github.com/cenkalti/backoff/v4 v4.1.2
 	github.com/gabriel-vasile/mimetype v1.3.1
 	github.com/go-shiori/go-readability v0.0.0-20210627123243-82cc33435520
 	github.com/go-shiori/obelisk v0.0.0-20201115143556-8de0d40b0a9b
