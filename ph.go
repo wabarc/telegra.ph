@@ -78,15 +78,15 @@ func (arc *Archiver) SetAuthor(author string) *Archiver {
 type ctxKeyShot struct{}
 
 // WithShot puts a screenshot.Screenshots into context.
-func (arc *Archiver) WithShot(ctx context.Context, shot screenshot.Screenshots) context.Context {
+func (arc *Archiver) WithShot(ctx context.Context, shot *screenshot.Screenshots) context.Context {
 	return context.WithValue(ctx, ctxKeyShot{}, shot)
 }
 
-func shotFromContext(ctx context.Context) screenshot.Screenshots {
-	if shot, ok := ctx.Value(ctxKeyShot{}).(screenshot.Screenshots); ok {
+func shotFromContext(ctx context.Context) *screenshot.Screenshots {
+	if shot, ok := ctx.Value(ctxKeyShot{}).(*screenshot.Screenshots); ok {
 		return shot
 	}
-	return screenshot.Screenshots{}
+	return &screenshot.Screenshots{}
 }
 
 type ctxKeyArticle struct{}
