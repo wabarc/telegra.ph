@@ -5,7 +5,6 @@
 package ph
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"image"
@@ -40,6 +39,7 @@ import (
 const (
 	maxElapsedTime = 5 * time.Minute
 	maxRetries     = 10
+	perm           = 0644
 )
 
 type subject struct {
@@ -78,15 +78,15 @@ func (arc *Archiver) SetAuthor(author string) *Archiver {
 type ctxKeyShot struct{}
 
 // WithShot puts a screenshot.Screenshots into context.
-func (arc *Archiver) WithShot(ctx context.Context, shot *screenshot.Screenshots) context.Context {
+func (arc *Archiver) WithShot(ctx context.Context, shot *screenshot.Screenshots[screenshot.Path]) context.Context {
 	return context.WithValue(ctx, ctxKeyShot{}, shot)
 }
 
-func shotFromContext(ctx context.Context) *screenshot.Screenshots {
-	if shot, ok := ctx.Value(ctxKeyShot{}).(*screenshot.Screenshots); ok {
+func shotFromContext(ctx context.Context) *screenshot.Screenshots[screenshot.Path] {
+	if shot, ok := ctx.Value(ctxKeyShot{}).(*screenshot.Screenshots[screenshot.Path]); ok {
 		return shot
 	}
-	return &screenshot.Screenshots{}
+	return &screenshot.Screenshots[screenshot.Path]{}
 }
 
 type ctxKeyArticle struct{}
@@ -111,22 +111,33 @@ func (arc *Archiver) Wayback(ctx context.Context, input *url.URL) (dst string, e
 	}
 	arc.client = client
 
+	dirname, err := os.MkdirTemp(os.TempDir(), "telegraph")
+	if err != nil {
+		return dst, err
+	}
+	defer os.RemoveAll(dirname)
+
 	shot := shotFromContext(ctx)
-	if shot.HTML == nil {
+	if shot.HTML == "" {
+		file := screenshot.Files{
+			HTML:  filepath.Join(dirname, "telegraph.html"),
+			Image: filepath.Join(dirname, "telegraph.png"),
+		}
 		opts := []screenshot.ScreenshotOption{
+			screenshot.AppendToFile(file),
 			screenshot.ScaleFactor(1),
 			screenshot.RawHTML(true),
 			screenshot.Quality(100),
 		}
 		if arc.browserRemoteAddr != nil {
 			addr := arc.browserRemoteAddr.(*net.TCPAddr)
-			remote, er := screenshot.NewChromeRemoteScreenshoter(addr.String())
+			remote, er := screenshot.NewChromeRemoteScreenshoter[screenshot.Path](addr.String())
 			if er != nil {
 				return dst, errors.Wrap(err, `screenshot failed`)
 			}
 			shot, err = remote.Screenshot(ctx, input, opts...)
 		} else {
-			shot, err = screenshot.Screenshot(ctx, input, opts...)
+			shot, err = screenshot.Screenshot[screenshot.Path](ctx, input, opts...)
 		}
 		if err != nil {
 			if err == context.DeadlineExceeded {
@@ -136,34 +147,27 @@ func (arc *Archiver) Wayback(ctx context.Context, input *url.URL) (dst string, e
 		}
 	}
 
-	if shot.HTML == nil {
-		shot.HTML, err = arc.download(ctx, input)
+	if shot.HTML == "" {
+		buf, err := arc.download(ctx, input)
 		if err != nil {
 			return "", errors.Wrap(err, `download webpage via obelisk failed`)
 		}
+		fp := filepath.Join(dirname, "telegraph.html")
+		shot.HTML = screenshot.Path(fp)
+		os.WriteFile(fp, buf, perm)
 	}
 
-	if shot.URL == "" || shot.Image == nil {
+	if shot.URL == "" || shot.Image == "" {
 		return "", errors.New("data empty")
 	}
 
-	name := helper.FileName(shot.URL, "image/png")
-	file, err := ioutil.TempFile(os.TempDir(), "telegraph-*-"+name)
-	if err != nil {
-		return "", errors.Wrap(err, `create temp dir failed`)
-	}
-	defer os.Remove(file.Name())
-
-	if err := ioutil.WriteFile(file.Name(), shot.Image, 0o644); err != nil {
-		return "", errors.Wrap(err, `write image failed`)
-	}
-
+	file, _ := os.Open(fmt.Sprint(shot.HTML))
 	article := articleFromContext(ctx)
 	if article.Content != "" {
 		goto post
 	}
 
-	article, err = readability.FromReader(bytes.NewReader(shot.HTML), input)
+	article, err = readability.FromReader(file, input)
 	if err != nil {
 		goto post
 	}
@@ -173,7 +177,7 @@ func (arc *Archiver) Wayback(ctx context.Context, input *url.URL) (dst string, e
 
 post:
 	sub := subject{title: []rune(shot.Title), source: shot.URL}
-	dst, err = arc.post(sub, article.Content, file.Name())
+	dst, err = arc.post(sub, article.Content, fmt.Sprint(shot.Image))
 	if err != nil {
 		return "", err
 	}

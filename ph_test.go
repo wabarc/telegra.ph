@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"strings"
 	"testing"
 	"time"
@@ -82,10 +83,9 @@ func TestPost(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Log("URL:", dest)
-
 	resp, err := http.Get(dest)
 	if err != nil {
+		t.Log("URL:", dest)
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
@@ -239,9 +239,19 @@ func TestWaybackWithShots(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	dirname, err := os.MkdirTemp(os.TempDir(), "telegraph")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dirname)
+
 	arc := &Archiver{}
 	ctx := context.Background()
-	shot, err := screenshot.Screenshot(ctx, input, screenshot.Quality(100))
+	files := screenshot.Files{
+		Image: path.Join(dirname, "image.png"),
+		HTML:  path.Join(dirname, "html.html"),
+	}
+	shot, err := screenshot.Screenshot[screenshot.Path](ctx, input, screenshot.Quality(100), screenshot.AppendToFile(files))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +282,7 @@ func TestSplitImage(t *testing.T) {
 	paths, err := splitImage(file.Name(), 8976)
 	if err != nil {
 		t.Log(err)
+		t.Log(paths)
 		t.Fail()
 	}
-	t.Log(paths)
 }
