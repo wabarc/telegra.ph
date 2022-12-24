@@ -11,7 +11,7 @@ require (
 	github.com/kallydev/telegraph-go v1.0.0
 	github.com/oliamb/cutter v0.2.2
 	github.com/pkg/errors v0.9.1
-	github.com/wabarc/helper v0.0.0-20211225065210-3d35291efe54
+	github.com/wabarc/helper v0.0.0-20220717051347-689fdde4c868
 	github.com/wabarc/imgbb v1.0.0
 	github.com/wabarc/logger v0.0.0-20210730133522-86bd3f31e792
 	github.com/wabarc/screenshot v1.4.1-0.20220223134848-3b650971e302
@@ -24,6 +24,7 @@ require (
 	github.com/chromedp/chromedp v0.8.6 // indirect
 	github.com/chromedp/sysutil v1.0.0 // indirect
 	github.com/fatih/color v1.13.0 // indirect
+	github.com/fortytw2/leaktest v1.3.0 // indirect
 	github.com/go-shiori/dom v0.0.0-20210627111528-4e4722cd0d65 // indirect
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect

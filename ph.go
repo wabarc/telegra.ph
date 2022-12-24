@@ -217,17 +217,7 @@ func (arc *Archiver) post(sub subject, content, imgpath string) (dst string, err
 	// if err != nil {
 	// 	return "", err
 	// }
-	var paths []string
-	action := func() error {
-		paths, err = upload(imgpath)
-		if err != nil {
-			return err
-		}
-		return nil
-	}
-	if err = doRetry(action); err != nil {
-		return "", errors.Wrap(err, "upload image to ImgBB failed")
-	}
+	paths, _ := uploadImage(arc.client, imgpath)
 
 	nodes := []telegraph.Node{}
 	if content == "" {
@@ -322,10 +312,21 @@ func (arc *Archiver) newClient() (*telegraph.Client, error) {
 	return client, nil
 }
 
-func upload(filename string) (paths []string, err error) {
+func uploadImage(client *telegraph.Client, fp string) ([]string, error) {
+	paths, err := client.Upload([]string{fp})
+	if err != nil || len(paths) == 0 {
+		paths, err = uploadToImgbb(fp)
+		if err != nil || len(paths) == 0 {
+			return paths, err
+		}
+	}
+	return paths, err
+}
+
+func uploadToImgbb(filename string) (paths []string, err error) {
 	url, err := imgbb.NewImgBB(nil, "").Upload(filename)
 	if err != nil {
-		return paths, errors.Wrap(err, `upload image to imgbb failed`)
+		return paths, errors.Wrap(err, fmt.Sprintf("upload image %s to ImgBB failed", filename))
 	}
 
 	return []string{url}, nil
@@ -444,17 +445,12 @@ func traverseNodes(selections *goquery.Selection, client *telegraph.Client) (nod
 			case html.ElementNode:
 				attrs = map[string]string{}
 				for _, attr := range node.Attr {
-					// Upload image to telegra.ph
+					// Upload image to telegra.ph or ImgBB
 					if attr.Key == "src" || attr.Key == "data-src" {
-						action := func() error {
-							newurl, err := uploadImage(client, attr.Val)
-							if err != nil {
-								return err
-							}
+						newurl, err := transferImage(client, attr.Val)
+						if err == nil {
 							attr.Val = newurl
-							return nil
 						}
-						_ = doRetry(action)
 					}
 					attrs[attr.Key] = attr.Val
 				}
@@ -514,7 +510,9 @@ func download(u *url.URL) (path string, err error) {
 	return path, nil
 }
 
-func uploadImage(client *telegraph.Client, s string) (newurl string, err error) {
+// transferImage download image from original server and upload to Telegraph or ImgBB,
+// it returns image path or full url.
+func transferImage(client *telegraph.Client, s string) (newurl string, err error) {
 	logger.Debug("[telegraph] uri: %s", s)
 	u, err := url.Parse(s)
 	if err != nil {
@@ -545,10 +543,11 @@ func uploadImage(client *telegraph.Client, s string) (newurl string, err error) 
 		}
 	}
 
-	paths, err := client.Upload([]string{path})
+	paths, err := uploadImage(client, path)
 	if err != nil || len(paths) == 0 {
-		return newurl, errors.Wrap(err, fmt.Sprintf("upload image %s content-type %s failed", path, mtype))
+		return "", err
 	}
+
 	newurl = paths[0] + "?orig=" + s
 	logger.Debug("[telegraph] new uri: %s", newurl)
 
