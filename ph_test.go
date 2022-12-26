@@ -10,11 +10,13 @@ import (
 	"image/color"
 	"image/png"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"strings"
 	"testing"
 	"time"
@@ -82,10 +84,9 @@ func TestPost(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Log("URL:", dest)
-
 	resp, err := http.Get(dest)
 	if err != nil {
+		t.Log("URL:", dest)
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
@@ -168,30 +169,41 @@ func TestWaybackByRemote(t *testing.T) {
 		t.Skip("Chrome headless browser no found, skipped")
 	}
 
-	cmd := exec.Command(binPath, "--headless", "--disable-gpu", "--no-sandbox", "--remote-debugging-port=9222", "--remote-debugging-address=0.0.0.0")
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("Start Chromium headless failed: %v", err)
-	}
-	go func() {
-		// nolint:errcheck
-		cmd.Wait()
-	}()
+	host := "127.0.0.1"
+	port := "9222"
+	tempDir := t.TempDir()
+	procCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cmd := exec.CommandContext(procCtx, binPath,
+		"--no-first-run",
+		"--no-default-browser-check",
+		"--headless",
+		"--disable-gpu",
+		"--no-sandbox",
+		"--user-data-dir="+tempDir,
+		"--remote-debugging-address="+host,
+		"--remote-debugging-port="+port,
+		"about:blank",
+	)
 
-	// Waiting for browser startup
-	time.Sleep(3 * time.Second)
-	defer func() {
-		if err := cmd.Process.Kill(); err != nil {
-			t.Errorf("Failed to kill process: %v", err)
-		}
-	}()
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stderr.Close()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
 
 	input, err := url.Parse(ts.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	arc := New().ByRemote("127.0.0.1:9222")
-	dst, err := arc.Wayback(context.Background(), input)
+	arc := New().ByRemote(net.JoinHostPort(host, port))
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	dst, err := arc.Wayback(ctx, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,9 +251,19 @@ func TestWaybackWithShots(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	dirname, err := os.MkdirTemp(os.TempDir(), "telegraph")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dirname)
+
 	arc := &Archiver{}
 	ctx := context.Background()
-	shot, err := screenshot.Screenshot(ctx, input, screenshot.Quality(100))
+	files := screenshot.Files{
+		Image: path.Join(dirname, "image.png"),
+		HTML:  path.Join(dirname, "html.html"),
+	}
+	shot, err := screenshot.Screenshot[screenshot.Path](ctx, input, screenshot.Quality(100), screenshot.AppendToFile(files))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +294,7 @@ func TestSplitImage(t *testing.T) {
 	paths, err := splitImage(file.Name(), 8976)
 	if err != nil {
 		t.Log(err)
+		t.Log(paths)
 		t.Fail()
 	}
-	t.Log(paths)
 }
