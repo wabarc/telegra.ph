@@ -11,10 +11,10 @@ require (
 	github.com/kallydev/telegraph-go v1.0.0
 	github.com/oliamb/cutter v0.2.2
 	github.com/pkg/errors v0.9.1
-	github.com/wabarc/helper v0.0.0-20221225124211-0ac3bfc279b4
+	github.com/wabarc/helper v0.0.0-20221226125347-ca560e106056
 	github.com/wabarc/imgbb v1.0.0
 	github.com/wabarc/logger v0.0.0-20210730133522-86bd3f31e792
-	github.com/wabarc/screenshot v1.5.2
+	github.com/wabarc/screenshot v1.6.0
 	golang.org/x/net v0.4.0
 )
 
@@ -44,5 +44,3 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	mvdan.cc/xurls/v2 v2.4.0 // indirect
 )
-
-replace github.com/wabarc/screenshot => github.com/wabarc/screenshot v1.5.3-0.20221224102607-bc2110451443
