@@ -40,6 +40,7 @@ const (
 	maxElapsedTime = 5 * time.Minute
 	maxRetries     = 10
 	perm           = 0644
+	timeout        = 30 * time.Second
 )
 
 type subject struct {
@@ -52,6 +53,9 @@ type Archiver struct {
 
 	Author string
 
+	Client *http.Client
+
+	// TODO: add http.Client to upstream
 	client *telegraph.Client
 
 	browserRemoteAddr net.Addr
@@ -65,8 +69,12 @@ func init() {
 }
 
 // New returns a Archiver struct.
-func New() *Archiver {
-	return &Archiver{}
+func New(client *http.Client) *Archiver {
+	if client == nil {
+		client = &http.Client{Timeout: timeout}
+	}
+
+	return &Archiver{Client: client}
 }
 
 // SetAuthor return an Archiver struct with Author
@@ -148,9 +156,9 @@ func (arc *Archiver) Wayback(ctx context.Context, input *url.URL) (dst string, e
 	}
 
 	if shot.HTML == "" {
-		buf, err := arc.download(ctx, input)
+		buf, err := arc.capture(ctx, input)
 		if err != nil {
-			return "", errors.Wrap(err, `download webpage via obelisk failed`)
+			return "", errors.Wrap(err, `capture webpage via obelisk failed`)
 		}
 		fp := filepath.Join(dirname, "telegraph.html")
 		shot.HTML = screenshot.Path(fp)
@@ -185,7 +193,7 @@ post:
 	return dst, nil
 }
 
-func (arc *Archiver) download(ctx context.Context, uri *url.URL) ([]byte, error) {
+func (arc *Archiver) capture(ctx context.Context, uri *url.URL) ([]byte, error) {
 	req := obelisk.Request{URL: uri.String()}
 	obe := &obelisk.Archiver{
 		SkipResourceURLError: true,
@@ -217,7 +225,7 @@ func (arc *Archiver) post(sub subject, content, imgpath string) (dst string, err
 	// if err != nil {
 	// 	return "", err
 	// }
-	paths, _ := uploadImage(arc.client, imgpath)
+	paths, _ := arc.uploadImage(imgpath)
 
 	nodes := []telegraph.Node{}
 	if content == "" {
@@ -264,7 +272,7 @@ func (arc *Archiver) post(sub subject, content, imgpath string) (dst string, err
 	if doc, err := goquery.NewDocumentFromReader(strings.NewReader(content)); err == nil {
 		nodes = append(nodes, telegraph.NodeElement{
 			Tag:      "p",
-			Children: castNodes(traverseNodes(doc.Contents(), arc.client)),
+			Children: castNodes(arc.traverseNodes(doc.Contents())),
 		})
 	}
 
@@ -312,8 +320,8 @@ func (arc *Archiver) newClient() (*telegraph.Client, error) {
 	return client, nil
 }
 
-func uploadImage(client *telegraph.Client, fp string) ([]string, error) {
-	paths, err := client.Upload([]string{fp})
+func (arc *Archiver) uploadImage(fp string) ([]string, error) {
+	paths, err := arc.client.Upload([]string{fp})
 	if err != nil || len(paths) == 0 {
 		paths, err = uploadToImgbb(fp)
 		if err != nil || len(paths) == 0 {
@@ -430,7 +438,7 @@ func (arc *Archiver) ByRemote(addr string) *Archiver {
 }
 
 // copied from: https://github.com/meinside/telegraph-go/blob/8b212a807f0302374ab467d61011e9aa5d26fbd1/methods.go#L402
-func traverseNodes(selections *goquery.Selection, client *telegraph.Client) (nodes []telegraph.Node) {
+func (arc *Archiver) traverseNodes(selections *goquery.Selection) (nodes []telegraph.Node) {
 	var tag string
 	var attrs map[string]string
 	var element telegraph.NodeElement
@@ -447,9 +455,11 @@ func traverseNodes(selections *goquery.Selection, client *telegraph.Client) (nod
 				for _, attr := range node.Attr {
 					// Upload image to telegra.ph or ImgBB
 					if attr.Key == "src" || attr.Key == "data-src" {
-						newurl, err := transferImage(client, attr.Val)
+						newurl, err := arc.transferImage(attr.Val)
 						if err == nil {
 							attr.Val = newurl
+						} else {
+							logger.Debug("transfer image failed: %v", err)
 						}
 					}
 					attrs[attr.Key] = attr.Val
@@ -462,7 +472,7 @@ func traverseNodes(selections *goquery.Selection, client *telegraph.Client) (nod
 				element = telegraph.NodeElement{
 					Tag:      tag,
 					Attrs:    attrs,
-					Children: traverseNodes(child.Contents(), client),
+					Children: arc.traverseNodes(child.Contents()),
 				}
 				nodes = append(nodes, element)
 			}
@@ -489,7 +499,11 @@ func castNodes(nodes []telegraph.Node) (castNodes []telegraph.Node) {
 	return castNodes
 }
 
-func download(u *url.URL) (path string, err error) {
+func (arc *Archiver) download(u *url.URL) (path string, err error) {
+	if !helper.IsURL(u.String()) {
+		return path, errors.Wrap(err, "invalid url")
+	}
+
 	path = filepath.Join(os.TempDir(), helper.RandString(21, "lower"))
 	fd, err := os.Create(path)
 	if err != nil {
@@ -497,7 +511,7 @@ func download(u *url.URL) (path string, err error) {
 	}
 	defer fd.Close()
 
-	resp, err := http.Get(u.String())
+	resp, err := arc.Client.Get(u.String())
 	if err != nil {
 		return path, err
 	}
@@ -512,14 +526,14 @@ func download(u *url.URL) (path string, err error) {
 
 // transferImage download image from original server and upload to Telegraph or ImgBB,
 // it returns image path or full url.
-func transferImage(client *telegraph.Client, s string) (newurl string, err error) {
+func (arc *Archiver) transferImage(s string) (newurl string, err error) {
 	logger.Debug("[telegraph] uri: %s", s)
 	u, err := url.Parse(s)
 	if err != nil {
 		return newurl, err
 	}
 
-	path, err := download(u)
+	path, err := arc.download(u)
 	if err != nil {
 		return newurl, errors.Wrap(err, "download image failed")
 	}
@@ -543,7 +557,7 @@ func transferImage(client *telegraph.Client, s string) (newurl string, err error
 		}
 	}
 
-	paths, err := uploadImage(client, path)
+	paths, err := arc.uploadImage(path)
 	if err != nil || len(paths) == 0 {
 		return "", err
 	}

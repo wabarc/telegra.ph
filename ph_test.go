@@ -200,7 +200,7 @@ func TestWaybackByRemote(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	arc := New().ByRemote(net.JoinHostPort(host, port))
+	arc := New(nil).ByRemote(net.JoinHostPort(host, port))
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	dst, err := arc.Wayback(ctx, input)
