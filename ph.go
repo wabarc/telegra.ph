@@ -452,18 +452,31 @@ func (arc *Archiver) traverseNodes(selections *goquery.Selection) (nodes []teleg
 				}
 			case html.ElementNode:
 				attrs = map[string]string{}
+				mu := sync.Mutex{}
+				ch := make(chan string)
 				for _, attr := range node.Attr {
 					// Upload image to telegra.ph or ImgBB
 					if attr.Key == "src" || attr.Key == "data-src" {
-						newurl, err := arc.transferImage(attr.Val)
-						if err == nil {
+						logger.Debug("transferring url: %s", attr.Val)
+						go arc.transferImage(attr.Val, ch)
+					}
+				}
+				// Assign transferred URI
+				for _, attr := range node.Attr {
+					if attr.Key == "src" || attr.Key == "data-src" {
+						logger.Debug("waiting url: %s", attr.Val)
+						newurl := <-ch
+						if newurl != "" {
+							logger.Debug("newn url: %s", newurl)
 							attr.Val = newurl
-						} else {
-							logger.Debug("transfer image failed: %v", err)
 						}
 					}
+					mu.Lock()
 					attrs[attr.Key] = attr.Val
+					mu.Unlock()
 				}
+				close(ch)
+
 				if len(node.Namespace) > 0 {
 					tag = fmt.Sprintf("%s.%s", node.Namespace, node.Data)
 				} else {
@@ -474,7 +487,9 @@ func (arc *Archiver) traverseNodes(selections *goquery.Selection) (nodes []teleg
 					Attrs:    attrs,
 					Children: arc.traverseNodes(child.Contents()),
 				}
+				mu.Lock()
 				nodes = append(nodes, element)
+				mu.Unlock()
 			}
 		}
 	})
@@ -526,23 +541,34 @@ func (arc *Archiver) download(u *url.URL) (path string, err error) {
 
 // transferImage download image from original server and upload to Telegraph or ImgBB,
 // it returns image path or full url.
-func (arc *Archiver) transferImage(s string) (newurl string, err error) {
+func (arc *Archiver) transferImage(s string, c chan string) {
 	logger.Debug("[telegraph] uri: %s", s)
+	if strings.HasPrefix(s, "data:") {
+		c <- ""
+		return
+	}
+
 	u, err := url.Parse(s)
 	if err != nil {
-		return newurl, err
+		logger.Error("parse uri failed: %v", err)
+		c <- ""
+		return
 	}
 
 	path, err := arc.download(u)
 	if err != nil {
-		return newurl, errors.Wrap(err, "download image failed")
+		logger.Error("download image failed: %v", err)
+		c <- ""
+		return
 	}
 	defer os.Remove(path)
 	logger.Debug("[telegraph] downloaded image path: %s", path)
 
 	mtype, err := mimetype.DetectFile(path)
 	if os.IsNotExist(err) {
-		return newurl, errors.Wrap(err, fmt.Sprintf("file %s not exist", path))
+		logger.Error("file %s not exists", path)
+		c <- ""
+		return
 	}
 
 	logger.Debug("[telegraph] content type: %s", mtype.String())
@@ -559,13 +585,15 @@ func (arc *Archiver) transferImage(s string) (newurl string, err error) {
 
 	paths, err := arc.uploadImage(path)
 	if err != nil || len(paths) == 0 {
-		return "", err
+		logger.Error("upload image failed: %v", err)
+		c <- ""
+		return
 	}
 
-	newurl = paths[0] + "?orig=" + s
+	newurl := paths[0] + "?orig=" + s
 	logger.Debug("[telegraph] new uri: %s", newurl)
 
-	return newurl, nil
+	c <- newurl
 }
 
 func doRetry(op backoff.Operation) error {

@@ -29,7 +29,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	wbrc := &ph.Archiver{}
+	wbrc := ph.New(nil)
 	process(wbrc.Wayback, args)
 }
 
