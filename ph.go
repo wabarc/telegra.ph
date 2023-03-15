@@ -11,7 +11,6 @@ import (
 	"image/png"
 	"io"
 	"io/ioutil"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -58,7 +57,7 @@ type Archiver struct {
 	// TODO: add http.Client to upstream
 	client *telegraph.Client
 
-	browserRemoteAddr net.Addr
+	browserRemoteAddr string
 }
 
 func init() {
@@ -126,7 +125,7 @@ func (arc *Archiver) Wayback(ctx context.Context, input *url.URL) (dst string, e
 	defer os.RemoveAll(dirname)
 
 	shot := shotFromContext(ctx)
-	if shot.HTML == "" {
+	if shot.HTML == "" || !helper.Exists(fmt.Sprint(shot.HTML)) {
 		file := screenshot.Files{
 			HTML:  filepath.Join(dirname, "telegraph.html"),
 			Image: filepath.Join(dirname, "telegraph.png"),
@@ -137,22 +136,37 @@ func (arc *Archiver) Wayback(ctx context.Context, input *url.URL) (dst string, e
 			screenshot.RawHTML(true),
 			screenshot.Quality(100),
 		}
-		if arc.browserRemoteAddr != nil {
-			addr := arc.browserRemoteAddr.(*net.TCPAddr)
-			remote, er := screenshot.NewChromeRemoteScreenshoter[screenshot.Path](addr.String())
+
+		fallback := func() (*screenshot.Screenshots[screenshot.Path], error) {
+			logger.Debug("reduxer using local browser")
+			shot, err := screenshot.Screenshot[screenshot.Path](ctx, input, opts...)
+			if err != nil {
+				if err == context.DeadlineExceeded {
+					return shot, errors.Wrap(err, `screenshot deadline`)
+				}
+				return shot, errors.Wrap(err, `screenshot error`)
+			}
+			return shot, err
+		}
+		if arc.browserRemoteAddr != "" {
+			logger.Debug("reduxer using remote browser")
+			remote, er := screenshot.NewChromeRemoteScreenshoter[screenshot.Path](arc.browserRemoteAddr)
 			if er != nil {
-				return dst, errors.Wrap(err, `screenshot failed`)
+				shot, err = fallback()
+				goto next
 			}
 			shot, err = remote.Screenshot(ctx, input, opts...)
-		} else {
-			shot, err = screenshot.Screenshot[screenshot.Path](ctx, input, opts...)
-		}
-		if err != nil {
-			if err == context.DeadlineExceeded {
-				return dst, errors.Wrap(err, `screenshot deadline`)
+			if err != nil {
+				shot, err = fallback()
 			}
-			return dst, errors.Wrap(err, `screenshot error`)
+		} else {
+			shot, err = fallback()
 		}
+	}
+
+next:
+	if err != nil {
+		return "", errors.Wrap(err, "screenshot failed")
 	}
 
 	if shot.HTML == "" {
@@ -422,16 +436,8 @@ func writeImage(img image.Image, name string) error {
 
 // ByRemote returns Archiver with headless browser remote address.
 func (arc *Archiver) ByRemote(addr string) *Archiver {
-	conn, err := net.DialTimeout("tcp", addr, time.Second)
-	if err != nil {
-		logger.Debug("[telegraph] try to connect headless browser failed: %v", err)
-	}
-	if conn != nil {
-		conn.Close()
-		arc.browserRemoteAddr = conn.RemoteAddr()
-		logger.Debug("[telegraph] connected: %v", conn.RemoteAddr().String())
-	} else {
-		logger.Debug("[telegraph] connect failed")
+	if addr != "" {
+		arc.browserRemoteAddr = addr
 	}
 
 	return arc
