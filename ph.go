@@ -183,7 +183,12 @@ next:
 		return "", errors.New("data empty")
 	}
 
-	file, _ := os.Open(fmt.Sprint(shot.HTML))
+	file, err := os.Open(fmt.Sprint(shot.HTML))
+	if err != nil {
+		return "", errors.Wrap(err, "open failed")
+	}
+	defer file.Close()
+
 	article := articleFromContext(ctx)
 	if article.Content != "" {
 		goto post
