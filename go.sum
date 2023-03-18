@@ -87,6 +87,8 @@ github.com/josharian/intern v1.0.0/go.mod h1:5DoeVV0s6jJacbCEi61lwdGj/aVlrQvzHFF
 github.com/julienschmidt/httprouter v1.2.0/go.mod h1:SYymIcj16QtmaHHD7aYtjjsJG7VTCxuUUipMqKk8s4w=
 github.com/kallydev/telegraph-go v1.0.1-0.20230318133219-4241fab103b8 h1:yBCP5ntwj9tRrV+g/RxNHD3IC8tkzjB4hPM5xDHCgyI=
 github.com/kallydev/telegraph-go v1.0.1-0.20230318133219-4241fab103b8/go.mod h1:vZj7M9HridntSIuQ7D9hgn2idKiA0T1VIblLp6l9uuc=
+github.com/kallydev/telegraph-go v1.0.1-0.20230318133700-df034d9eed50 h1:Os2f/xCaCfWqMAW8hAW8uviDY8XsRqkLUgLFFldSTYw=
+github.com/kallydev/telegraph-go v1.0.1-0.20230318133700-df034d9eed50/go.mod h1:vZj7M9HridntSIuQ7D9hgn2idKiA0T1VIblLp6l9uuc=
 github.com/kennygrant/sanitize v1.2.4 h1:gN25/otpP5vAsO2djbMhF/LQX6R7+O1TB4yv8NzpJ3o=
 github.com/kennygrant/sanitize v1.2.4/go.mod h1:LGsjYYtgxbetdg5owWB2mpgUL6e2nfw2eObZ0u0qvak=
 github.com/kisielk/errcheck v1.1.0/go.mod h1:EZBBE59ingxPouuu3KfxchcWSUPOHkagtvWXihfKN4Q=
