@@ -7,7 +7,7 @@ require (
 	github.com/cenkalti/backoff/v4 v4.2.0
 	github.com/gabriel-vasile/mimetype v1.4.2
 	github.com/go-shiori/go-readability v0.0.0-20220215145315-dd6828d2f09b
-	github.com/go-shiori/obelisk v0.0.0-20221119111008-23c015a8fad7
+	github.com/go-shiori/obelisk v0.0.0-20230316095823-42f6a2f99d9d
 	github.com/kallydev/telegraph-go v1.0.1-0.20230318133700-df034d9eed50
 	github.com/oliamb/cutter v0.2.2
 	github.com/pkg/errors v0.9.1
