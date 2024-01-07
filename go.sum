@@ -53,6 +53,8 @@ github.com/go-shiori/go-readability v0.0.0-20220215145315-dd6828d2f09b h1:yrGomo
 github.com/go-shiori/go-readability v0.0.0-20220215145315-dd6828d2f09b/go.mod h1:LTRGsNyO3/Y6u3ERbz17OiXy2qO1Y+/8QjXpg2ViyEY=
 github.com/go-shiori/obelisk v0.0.0-20221119111008-23c015a8fad7 h1:/GN4M29BcqDvcvuu12fVobP0krLlpoaIU671j4AO9WU=
 github.com/go-shiori/obelisk v0.0.0-20221119111008-23c015a8fad7/go.mod h1:qKa73D7hc0YucHndvsCOgZ5Ap54XgSmZxaIytNAFUAQ=
+github.com/go-shiori/obelisk v0.0.0-20240106093241-f70aef5a2762 h1:vdeL5nNZlVfXXzFOtkJ0vRQz0l7ZDkg6kuXYnt/kzzw=
+github.com/go-shiori/obelisk v0.0.0-20240106093241-f70aef5a2762/go.mod h1:qKa73D7hc0YucHndvsCOgZ5Ap54XgSmZxaIytNAFUAQ=
 github.com/go-stack/stack v1.8.0/go.mod h1:v0f6uXyyMGvRgIKkXu+yp6POWl0qKG85gN/melR3HDY=
 github.com/gobwas/httphead v0.1.0 h1:exrUm0f4YX0L7EBwZHuCF4GDp8aJfVeBrlLQrs6NqWU=
 github.com/gobwas/httphead v0.1.0/go.mod h1:O/RXo79gxV8G+RqlR/otEwx4Q36zl9rqC5u12GKvMCM=
