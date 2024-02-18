@@ -92,7 +92,7 @@ jobs:
       run: make TARGET=${{ steps.builder.outputs.args }} releases
 
     - name: Upload archived binary
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: telegra-ph
         path: build/package/telegra.ph*
@@ -105,7 +105,7 @@ jobs:
       digest: ${{ steps.digest.outputs.result }}
     steps:
     - name: Download math result from build job
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v4
       with:
         name: telegra-ph
         path: .
@@ -124,7 +124,7 @@ jobs:
     needs: [build, checksum]
     steps:
     - name: Download math result from build and checksum jobs
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v4
       with:
         name: telegra-ph
         path: telegra-ph # Put files to telegra.ph directory
