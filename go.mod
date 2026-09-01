@@ -1,6 +1,6 @@
 module github.com/wabarc/telegra.ph
 
-go 1.18
+go 1.25.0
 
 require (
 	github.com/PuerkitoBio/goquery v1.8.1
@@ -15,7 +15,7 @@ require (
 	github.com/wabarc/imgbb v1.0.0
 	github.com/wabarc/logger v0.0.0-20210730133522-86bd3f31e792
 	github.com/wabarc/screenshot v1.6.1-0.20230315004517-7587f8bc14e0
-	golang.org/x/net v0.8.0
+	golang.org/x/net v0.55.0
 )
 
 require (
@@ -38,9 +38,9 @@ require (
 	github.com/mattn/go-isatty v0.0.17 // indirect
 	github.com/sirupsen/logrus v1.9.0 // indirect
 	github.com/tdewolff/parse/v2 v2.6.5 // indirect
-	golang.org/x/sync v0.1.0 // indirect
-	golang.org/x/sys v0.6.0 // indirect
-	golang.org/x/text v0.8.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	mvdan.cc/xurls/v2 v2.4.0 // indirect
 )
